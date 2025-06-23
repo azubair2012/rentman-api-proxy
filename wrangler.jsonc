@@ -11,11 +11,19 @@
 		"nodejs_compat",
 		"global_fetch_strictly_public"
 	],
-	"assets": {
-		"directory": "./public"
-	},
 	"observability": {
 		"enabled": true
+	},
+	"kv_namespaces": [
+		{
+			"binding": "FEATURED_PROPERTIES",
+			"id": "38d44801778541139acbb4e6210a9369",
+			"preview_id": "your-preview-kv-namespace-id"
+		}
+	],
+	"vars": {
+		"RENTMAN_API_BASE_URL": "https://www.rentman.online",
+		"MAX_FEATURED_PROPERTIES": "6"
 	}
 	/**
 	 * Smart Placement
