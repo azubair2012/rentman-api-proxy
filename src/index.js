@@ -14,7 +14,7 @@
  * This Cloudflare Worker provides:
  * - Rentman API integration for property data
  * - Featured properties management with KV storage
- * - Admin interface for property selection
+ * - Admin interface for property selection with authentication
  * - CORS support for Framer integration
  */
 
@@ -47,6 +47,48 @@ function jsonResponse(data, status = 200) {
 // Helper function to create error response
 function errorResponse(message, status = 400) {
     return jsonResponse({ error: message }, status);
+}
+
+// Authentication Manager
+class AuthManager {
+    constructor(env) {
+        this.adminUsername = env.ADMIN_USERNAME;
+        this.adminPassword = env.ADMIN_PASSWORD;
+        this.sessionSecret = env.SESSION_SECRET;
+
+        // Validate required credentials
+        if (!this.adminUsername || !this.adminPassword || !this.sessionSecret) {
+            throw new Error('Missing required authentication credentials. Please set ADMIN_USERNAME, ADMIN_PASSWORD, and SESSION_SECRET environment variables.');
+        }
+    }
+
+    // Simple session token generation
+    generateSessionToken() {
+        const timestamp = Date.now();
+        const random = Math.random().toString(36).substring(2);
+        return btoa(`${timestamp}:${random}:${this.sessionSecret}`).replace(/[^a-zA-Z0-9]/g, '');
+    }
+
+    // Verify session token
+    verifySessionToken(token) {
+        try {
+            const decoded = atob(token);
+            const [timestamp, random, secret] = decoded.split(':');
+
+            // Check if session is not expired (24 hours)
+            const sessionAge = Date.now() - parseInt(timestamp);
+            const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+
+            return secret === this.sessionSecret && sessionAge < maxAge;
+        } catch (error) {
+            return false;
+        }
+    }
+
+    // Authenticate user
+    authenticate(username, password) {
+        return username === this.adminUsername && password === this.adminPassword;
+    }
 }
 
 // Rentman API client
@@ -131,6 +173,82 @@ class FeaturedPropertiesManager {
     }
 }
 
+// Authentication Handlers
+async function handleLogin(request, env) {
+    try {
+        const { username, password } = await request.json();
+
+        if (!username || !password) {
+            return errorResponse('Username and password are required');
+        }
+
+        const authManager = new AuthManager(env);
+
+        if (authManager.authenticate(username, password)) {
+            const sessionToken = authManager.generateSessionToken();
+
+            return new Response(JSON.stringify({
+                success: true,
+                message: 'Login successful',
+                sessionToken: sessionToken
+            }), {
+                status: 200,
+                headers: {
+                    ...corsHeaders,
+                    'Set-Cookie': `session=${sessionToken}; HttpOnly; Secure; SameSite=Strict; Max-Age=86400`
+                }
+            });
+        } else {
+            return errorResponse('Invalid credentials', 401);
+        }
+    } catch (error) {
+        return errorResponse('Login failed', 500);
+    }
+}
+
+async function handleLogout(request, env) {
+    return new Response(JSON.stringify({
+        success: true,
+        message: 'Logout successful'
+    }), {
+        status: 200,
+        headers: {
+            ...corsHeaders,
+            'Set-Cookie': 'session=; HttpOnly; Secure; SameSite=Strict; Max-Age=0'
+        }
+    });
+}
+
+// Middleware to check authentication
+function requireAuth(request, env) {
+    const authManager = new AuthManager(env);
+
+    // Check for session token in cookie
+    const cookieHeader = request.headers.get('Cookie');
+    if (cookieHeader) {
+        const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
+            const [key, value] = cookie.trim().split('=');
+            acc[key] = value;
+            return acc;
+        }, {});
+
+        if (cookies.session && authManager.verifySessionToken(cookies.session)) {
+            return null; // Authenticated
+        }
+    }
+
+    // Check for Authorization header (for API calls)
+    const authHeader = request.headers.get('Authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        if (authManager.verifySessionToken(token)) {
+            return null; // Authenticated
+        }
+    }
+
+    return errorResponse('Authentication required', 401);
+}
+
 // API Handlers
 async function handleGetProperties(request, env) {
     try {
@@ -172,6 +290,10 @@ async function handleGetFeaturedProperties(request, env) {
 }
 
 async function handleToggleFeaturedProperty(request, env) {
+    // Check authentication
+    const authError = requireAuth(request, env);
+    if (authError) return authError;
+
     try {
         const { propertyId } = await request.json();
 
@@ -193,6 +315,10 @@ async function handleToggleFeaturedProperty(request, env) {
 }
 
 async function handleAdminProperties(request, env) {
+    // Check authentication
+    const authError = requireAuth(request, env);
+    if (authError) return authError;
+
     try {
         const rentman = new RentmanAPI(env);
         const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES);
@@ -293,6 +419,174 @@ async function handlePropertyMedia(request, env) {
     }
 }
 
+// Login page HTML
+function getLoginHTML() {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>London Move Admin - Login</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-container {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .login-header h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        .login-header p {
+            color: #666;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 6px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .login-btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .login-btn:hover {
+            transform: translateY(-2px);
+        }
+        .login-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <h1>London Move Admin</h1>
+            <p>Sign in to manage featured properties</p>
+        </div>
+        
+        <div id="error" class="error"></div>
+        <div id="loading" class="loading">Signing in...</div>
+        
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            
+            <button type="submit" class="login-btn" id="loginBtn">Sign In</button>
+        </form>
+    </div>
+
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const loginBtn = document.getElementById('loginBtn');
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+            
+            // Show loading state
+            loginBtn.disabled = true;
+            loading.style.display = 'block';
+            error.style.display = 'none';
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Store session token
+                    localStorage.setItem('sessionToken', data.sessionToken);
+                    // Redirect to admin dashboard
+                    window.location.href = '/admin';
+                } else {
+                    throw new Error(data.error || 'Login failed');
+                }
+            } catch (error) {
+                showError('Invalid username or password');
+            } finally {
+                loginBtn.disabled = false;
+                loading.style.display = 'none';
+            }
+        });
+        
+        function showError(message) {
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+    </script>
+</body>
+</html>`;
+}
+
 // Admin interface HTML
 function getAdminHTML() {
     return `<!DOCTYPE html>
@@ -307,6 +601,17 @@ function getAdminHTML() {
         .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
         .header { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
         .header h1 { color: #333; margin-bottom: 10px; }
+        .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .logout-btn { 
+            background: #dc3545; 
+            color: white; 
+            border: none; 
+            padding: 8px 16px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 14px;
+        }
+        .logout-btn:hover { background: #c82333; }
         .stats { display: flex; gap: 20px; }
         .stat { background: #f8f9fa; padding: 10px; border-radius: 4px; }
         .controls { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
@@ -330,7 +635,10 @@ function getAdminHTML() {
 <body>
     <div class="container">
         <div class="header">
-            <h1>London Move Admin Dashboard</h1>
+            <div class="header-top">
+                <h1>London Move Admin Dashboard</h1>
+                <button class="logout-btn" onclick="logout()">Logout</button>
+            </div>
             <div class="stats">
                 <div class="stat">Total Properties: <span id="totalCount">-</span></div>
                 <div class="stat">Featured Properties: <span id="featuredCount">-</span></div>
@@ -349,10 +657,28 @@ function getAdminHTML() {
     <script>
         let properties = [];
         let featuredIds = [];
+        let sessionToken = localStorage.getItem('sessionToken');
+
+        // Check authentication on page load
+        if (!sessionToken) {
+            window.location.href = '/login';
+        }
 
         async function loadProperties() {
             try {
-                const response = await fetch('/api/admin/properties');
+                const response = await fetch('/api/admin/properties', {
+                    headers: {
+                        'Authorization': 'Bearer ' + sessionToken
+                    }
+                });
+                
+                if (response.status === 401) {
+                    // Unauthorized - redirect to login
+                    localStorage.removeItem('sessionToken');
+                    window.location.href = '/login';
+                    return;
+                }
+                
                 const data = await response.json();
                 
                 if (data.success) {
@@ -403,30 +729,46 @@ function getAdminHTML() {
             try {
                 const response = await fetch('/api/properties/featured/toggle', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + sessionToken
+                    },
                     body: JSON.stringify({ propertyId })
                 });
+                
+                if (response.status === 401) {
+                    // Unauthorized - redirect to login
+                    localStorage.removeItem('sessionToken');
+                    window.location.href = '/login';
+                    return;
+                }
                 
                 const data = await response.json();
                 
                 if (data.success) {
-                    // Update local state
-                    const property = properties.find(p => p.propref === propertyId);
-                    if (property) {
-                        property.isFeatured = !property.isFeatured;
-                        if (property.isFeatured) {
-                            featuredIds.push(propertyId);
-                        } else {
-                            featuredIds = featuredIds.filter(id => id !== propertyId);
-                        }
-                        updateStats();
-                        renderProperties();
-                    }
+                    // Instead of updating local state, reload the properties from the backend to ensure sync
+                    await loadProperties();
                 } else {
                     throw new Error(data.error || 'Failed to toggle featured status');
                 }
             } catch (error) {
                 showError('Failed to toggle featured status: ' + error.message);
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + sessionToken
+                    }
+                });
+            } catch (error) {
+                console.error('Logout error:', error);
+            } finally {
+                localStorage.removeItem('sessionToken');
+                window.location.href = '/login';
             }
         }
 
@@ -484,6 +826,23 @@ export default {
                 case '/api/admin/properties':
                     return await handleAdminProperties(request, env);
 
+                case '/api/auth/login':
+                    if (request.method !== 'POST') {
+                        return errorResponse('Method not allowed', 405);
+                    }
+                    return await handleLogin(request, env);
+
+                case '/api/auth/logout':
+                    if (request.method !== 'POST') {
+                        return errorResponse('Method not allowed', 405);
+                    }
+                    return await handleLogout(request, env);
+
+                case '/login':
+                    return new Response(getLoginHTML(), {
+                        headers: { 'Content-Type': 'text/html' },
+                    });
+
                 case '/admin':
                     return new Response(getAdminHTML(), {
                         headers: { 'Content-Type': 'text/html' },
@@ -496,6 +855,7 @@ export default {
                             properties: '/api/properties',
                             featured: '/api/properties/featured',
                             admin: '/admin',
+                            login: '/login',
                         },
                     }), {
                         headers: corsHeaders,
@@ -515,4 +875,4 @@ export default {
 };
 
 // Export classes for testing
-export { RentmanAPI, FeaturedPropertiesManager };
+export { RentmanAPI, FeaturedPropertiesManager, AuthManager };

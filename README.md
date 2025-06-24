@@ -63,9 +63,9 @@ Visit `http://localhost:8787` to test your API locally.
 
 ```bash
 # Set production secrets
-wrangler secret put RENTMAN_API_TOKEN
-wrangler secret put RENTMAN_API_USERNAME
-wrangler secret put RENTMAN_API_PASSWORD
+wrangler secret put ADMIN_USERNAME
+wrangler secret put ADMIN_PASSWORD
+wrangler secret put SESSION_SECRET
 
 # Deploy
 npm run deploy
