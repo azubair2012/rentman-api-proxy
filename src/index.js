@@ -220,6 +220,79 @@ async function handleAdminProperties(request, env) {
     }
 }
 
+async function handlePropertyMedia(request, env) {
+    try {
+        const url = new URL(request.url);
+        const propref = url.searchParams.get('propref');
+        const filename = url.searchParams.get('filename');
+        const token = env.RENTMAN_API_TOKEN;
+        if (!token) {
+            return errorResponse('Missing Rentman API token', 500);
+        }
+
+        if (propref) {
+            // Fetch media list for the property
+            const rentmanUrl = `https://www.rentman.online/propertymedia.php?propref=${encodeURIComponent(propref)}`;
+            const rentmanResponse = await fetch(rentmanUrl, {
+                headers: { 'token': token }
+            });
+            if (!rentmanResponse.ok) {
+                const text = await rentmanResponse.text();
+                return errorResponse(`Failed to fetch media list: ${rentmanResponse.status} - ${text}`, 502);
+            }
+            let mediaList;
+            try {
+                mediaList = await rentmanResponse.json();
+            } catch (err) {
+                return errorResponse('Invalid JSON from Rentman media list', 502);
+            }
+            return new Response(JSON.stringify(mediaList), {
+                headers: { 'Content-Type': 'application/json', ...corsHeaders }
+            });
+        } else if (filename) {
+            // Fetch the image itself
+            const rentmanUrl = `https://www.rentman.online/propertymedia.php?filename=${encodeURIComponent(filename)}`;
+            const rentmanResponse = await fetch(rentmanUrl, {
+                headers: {
+                    'token': token,
+                    'ACCEPT': 'application/base64'
+                }
+            });
+            if (!rentmanResponse.ok) {
+                const text = await rentmanResponse.text();
+                return errorResponse(`Failed to fetch image: ${rentmanResponse.status} - ${text}`, 502);
+            }
+            const base64 = await rentmanResponse.text();
+            if (!base64 || base64.length < 10) {
+                return errorResponse('No image data received from Rentman', 502);
+            }
+            // Convert base64 to binary
+            let binary;
+            try {
+                binary = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+            } catch (err) {
+                return errorResponse('Failed to decode base64 image', 502);
+            }
+            // Guess content type from filename extension
+            let contentType = 'image/jpeg';
+            if (filename.match(/\.png$/i)) contentType = 'image/png';
+            else if (filename.match(/\.gif$/i)) contentType = 'image/gif';
+            else if (filename.match(/\.webp$/i)) contentType = 'image/webp';
+            return new Response(binary, {
+                headers: {
+                    'Content-Type': contentType,
+                    'Cache-Control': 'public, max-age=86400',
+                    ...corsHeaders
+                }
+            });
+        } else {
+            return errorResponse('Missing propref or filename query parameter', 400);
+        }
+    } catch (error) {
+        return errorResponse('Internal error in property media handler: ' + error.message, 500);
+    }
+}
+
 // Admin interface HTML
 function getAdminHTML() {
     return `<!DOCTYPE html>
@@ -308,7 +381,7 @@ function getAdminHTML() {
             grid.innerHTML = filteredProperties.map(property => \`
                 <div class="property-card">
                     <div class="property-image">
-                        \${property.photo1 ? \`<img src="\${property.photo1}" alt="\${property.displayaddress}" style="width: 100%; height: 100%; object-fit: cover;">\` : 'No Image'}
+                        \${property.photo1binary ? \`<img src="data:image/jpeg;base64,\${property.photo1binary}" alt="\${property.displayaddress}" style="width: 100%; height: 100%; object-fit: cover;">\` : 'No Image'}
                     </div>
                     <div class="property-content">
                         <div class="property-title">\${property.displayaddress}</div>
@@ -427,6 +500,9 @@ export default {
                     }), {
                         headers: corsHeaders,
                     });
+
+                case '/api/propertymedia':
+                    return await handlePropertyMedia(request, env);
 
                 default:
                     return errorResponse('Not Found', 404);
