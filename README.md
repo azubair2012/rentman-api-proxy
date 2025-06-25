@@ -239,3 +239,7 @@ npm run deploy
 ---
 
 **Built with ❤️ for real estate professionals** 
+
+const featuredProperties = allProperties.filter(property =>
+    featuredIds.includes(String(property.propref))
+); 

@@ -276,7 +276,7 @@ async function handleGetFeaturedProperties(request, env) {
         ]);
 
         const featuredProperties = allProperties.filter(property =>
-            featuredIds.includes(property.propref)
+            featuredIds.includes(String(property.propref))
         );
 
         return jsonResponse({
@@ -331,7 +331,7 @@ async function handleAdminProperties(request, env) {
         // Add featured status to each property
         const propertiesWithFeaturedStatus = allProperties.map(property => ({
             ...property,
-            isFeatured: featuredIds.includes(property.propref),
+            isFeatured: featuredIds.includes(String(property.propref)),
         }));
 
         return jsonResponse({
