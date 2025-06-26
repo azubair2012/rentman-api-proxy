@@ -255,6 +255,35 @@ async function handleGetProperties(request, env) {
         const rentman = new RentmanAPI(env);
         const properties = await rentman.fetchProperties();
 
+        async function handleGetProperties(request, env) {
+            try {
+                // Check cache first
+                const cacheKey = 'properties_cache';
+                const cached = await env.FEATURED_PROPERTIES.get(cacheKey, 'json');
+                if (cached) {
+                    return jsonResponse({
+                        success: true,
+                        data: cached,
+                        count: cached.length,
+                    });
+                }
+
+                const rentman = new RentmanAPI(env);
+                const properties = await rentman.fetchProperties();
+
+                // Cache the response for future requests
+                await env.FEATURED_PROPERTIES.put(cacheKey, JSON.stringify(properties), { expirationTtl: 300 });
+
+                return jsonResponse({
+                    success: true,
+                    data: properties,
+                    count: properties.length,
+                });
+            } catch (error) {
+                return errorResponse('Failed to fetch properties', 500);
+            }
+        }
+
         return jsonResponse({
             success: true,
             data: properties,
@@ -278,6 +307,41 @@ async function handleGetFeaturedProperties(request, env) {
         const featuredProperties = allProperties.filter(property =>
             featuredIds.includes(String(property.propref))
         );
+
+        async function handleGetFeaturedProperties(request, env) {
+            try {
+                // Create cache key based on featured IDs to handle dependencies
+                const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES);
+                const featuredIds = await featuredManager.getFeaturedPropertyIds();
+                const cacheKey = `featured_properties_${featuredIds.sort().join(',')}`;
+                const cached = await env.FEATURED_PROPERTIES.get(cacheKey, 'json');
+                if (cached) {
+                    return jsonResponse({
+                        success: true,
+                        data: cached,
+                        count: cached.length,
+                    });
+                }
+
+                const rentman = new RentmanAPI(env);
+                const allProperties = await rentman.fetchProperties();
+
+                const featuredProperties = allProperties.filter(property =>
+                    featuredIds.includes(String(property.propref))
+                );
+
+                // Cache the filtered results
+                await env.FEATURED_PROPERTIES.put(cacheKey, JSON.stringify(featuredProperties), { expirationTtl: 300 });
+
+                return jsonResponse({
+                    success: true,
+                    data: featuredProperties,
+                    count: featuredProperties.length,
+                });
+            } catch (error) {
+                return errorResponse('Failed to fetch featured properties', 500);
+            }
+        }
 
         return jsonResponse({
             success: true,
