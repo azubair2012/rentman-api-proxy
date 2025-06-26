@@ -23,7 +23,7 @@
 	],
 	"vars": {
 		"RENTMAN_API_BASE_URL": "https://www.rentman.online",
-		"MAX_FEATURED_PROPERTIES": "6"
+		"MAX_FEATURED_PROPERTIES": "7"
 	}
 	/**
 	 * Smart Placement

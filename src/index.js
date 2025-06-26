@@ -168,8 +168,8 @@ class RentmanAPI {
 
 // Featured Properties Manager
 class FeaturedPropertiesManager {
-    constructor(kv) {
-        this.kv = kv;
+    constructor(kv, env) {
+        this.kv = kv; this.maxFeatured = parseInt(env.MAX_FEATURED_PROPERTIES) || 7; this.minFeatured = 7;
     }
 
     async getFeaturedPropertyIds() {
@@ -199,10 +199,8 @@ class FeaturedPropertiesManager {
             const featured = await this.getFeaturedPropertyIds();
             const index = featured.indexOf(propertyId);
 
-            if (index > -1) {
-                featured.splice(index, 1);
-            } else {
-                featured.push(propertyId);
+            if (index > -1) { // Removing a property if (featured.length <= this.minFeatured) { throw new Error(`Cannot remove property. Minimum of ${this.minFeatured} featured properties required.`); } featured.splice(index, 1);
+            } else { // Adding a property if (featured.length >= this.maxFeatured) { throw new Error(`Cannot add property. Maximum of ${this.maxFeatured} featured properties allowed.`); } featured.push(propertyId);
             }
 
             await this.setFeaturedPropertyIds(featured);
@@ -314,7 +312,7 @@ async function handleGetProperties(request, env) {
 async function handleGetFeaturedProperties(request, env) {
     try {
         const rentman = new RentmanAPI(env);
-        const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES);
+        const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES, env);
 
         const [allProperties, featuredIds] = await Promise.all([
             rentman.fetchProperties(),
@@ -346,14 +344,8 @@ async function handleToggleFeaturedProperty(request, env) {
             return errorResponse('Property ID is required');
         }
 
-        const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES);
-        const updatedFeatured = await featuredManager.toggleFeaturedProperty(propertyId);
-
-        return jsonResponse({
-            success: true,
-            data: { featuredPropertyIds: updatedFeatured },
-            message: 'Featured status updated successfully',
-        });
+        const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES, env);
+        try { const updatedFeatured = await featuredManager.toggleFeaturedProperty(propertyId); return jsonResponse({ success: true, data: { featuredPropertyIds: updatedFeatured }, message: "Featured status updated successfully", limits: { min: featuredManager.minFeatured, max: featuredManager.maxFeatured, current: updatedFeatured.length } }); } catch (limitError) { return errorResponse(limitError.message, 400); }
     } catch (error) {
         return errorResponse('Failed to toggle featured property', 500);
     }
@@ -365,7 +357,7 @@ async function handleAdminProperties(request, env) {
 
     try {
         const rentman = new RentmanAPI(env);
-        const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES);
+        const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES, env);
 
         const [allProperties, featuredIds] = await Promise.all([
             rentman.fetchProperties(),
@@ -1048,3 +1040,7 @@ export default {
 
 // Export classes for testing
 export { RentmanAPI, FeaturedPropertiesManager, AuthManager, ImageProcessor };
+
+
+
+
