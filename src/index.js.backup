@@ -9,15 +9,13 @@
  */
 
 /**
- * Optimized Rentman API Proxy with Featured Properties Management
+ * Rentman API Proxy with Featured Properties Management
  * 
- * Optimizations made:
- * - Implemented proper caching with TTL
- * - Removed duplicate function definitions
- * - Optimized image processing
- * - Added request timeouts
- * - Implemented streaming for large responses
- * - Added memory-efficient data processing
+ * This Cloudflare Worker provides:
+ * - Rentman API integration for property data
+ * - Featured properties management with KV storage
+ * - Admin interface for property selection with authentication
+ * - CORS support for Framer integration
  */
 
 // CORS headers for cross-origin requests
@@ -27,10 +25,6 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Content-Type': 'application/json',
 };
-
-// Cache configuration
-const CACHE_TTL = 300; // 5 minutes
-const IMAGE_CACHE_TTL = 3600; // 1 hour for images
 
 // Helper function to handle CORS preflight requests
 function handleCORS(request) {
@@ -62,105 +56,72 @@ class AuthManager {
         this.adminPassword = env.ADMIN_PASSWORD;
         this.sessionSecret = env.SESSION_SECRET;
 
+        // Validate required credentials
         if (!this.adminUsername || !this.adminPassword || !this.sessionSecret) {
-            throw new Error('Missing required authentication credentials.');
+            throw new Error('Missing required authentication credentials. Please set ADMIN_USERNAME, ADMIN_PASSWORD, and SESSION_SECRET environment variables.');
         }
     }
 
+    // Simple session token generation
     generateSessionToken() {
         const timestamp = Date.now();
         const random = Math.random().toString(36).substring(2);
         return btoa(`${timestamp}:${random}:${this.sessionSecret}`).replace(/[^a-zA-Z0-9]/g, '');
     }
 
+    // Verify session token
     verifySessionToken(token) {
         try {
             const decoded = atob(token);
             const [timestamp, random, secret] = decoded.split(':');
+
+            // Check if session is not expired (24 hours)
             const sessionAge = Date.now() - parseInt(timestamp);
             const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+
             return secret === this.sessionSecret && sessionAge < maxAge;
         } catch (error) {
             return false;
         }
     }
 
+    // Authenticate user
     authenticate(username, password) {
         return username === this.adminUsername && password === this.adminPassword;
     }
 }
 
-// Optimized Rentman API client with caching
+// Rentman API client
 class RentmanAPI {
     constructor(env) {
         this.baseUrl = env.RENTMAN_API_BASE_URL || 'https://www.rentman.online';
+        // Decode the token since Rentman API expects it decoded, not encoded
+        console.log('Original token:', env.RENTMAN_API_TOKEN ? env.RENTMAN_API_TOKEN.substring(0, 20) + '...' : 'null');
         this.token = env.RENTMAN_API_TOKEN ? decodeURIComponent(env.RENTMAN_API_TOKEN) : null;
-        this.kv = env.FEATURED_PROPERTIES;
+        console.log('Decoded token:', this.token ? this.token.substring(0, 20) + '...' : 'null');
     }
 
     async fetchProperties() {
         try {
-            // Check cache first
-            const cacheKey = 'properties_cache';
-            const cached = await this.kv.get(cacheKey, 'json');
-            if (cached) {
-                return cached;
-            }
-
-            // Fetch with timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
+            // Send token as a decoded query parameter (not as a header)
             const url = `${this.baseUrl}/propertyadvertising.php?token=${this.token}`;
+
             const response = await fetch(url, {
-                headers: { 'Accept': 'application/json' },
-                signal: controller.signal
+                headers: {
+                    'Accept': 'application/json'
+                }
             });
 
-            clearTimeout(timeoutId);
-
             if (!response.ok) {
-                throw new Error(`Rentman API error: ${response.status}`);
+                const errorText = await response.text();
+                console.error('Rentman API error:', response.status, errorText);
+                throw new Error(`Rentman API error: ${response.status} - ${errorText}`);
             }
 
             const data = await response.json();
-            const properties = data || [];
-
-            // Cache the response
-            await this.kv.put(cacheKey, JSON.stringify(properties), { expirationTtl: CACHE_TTL });
-
-            return properties;
+            return data || [];
         } catch (error) {
             console.error('Error fetching properties:', error);
-            throw error;
-        }
-    }
-
-    async fetchPropertyMedia(propref) {
-        try {
-            const cacheKey = `media_list_${propref}`;
-            const cached = await this.kv.get(cacheKey, 'json');
-            if (cached) {
-                return cached;
-            }
-
-            const url = `${this.baseUrl}/propertymedia.php?propref=${encodeURIComponent(propref)}`;
-            const response = await fetch(url, {
-                headers: { 'token': this.token }
-            });
-
-            if (!response.ok) {
-                throw new Error(`Media API error: ${response.status}`);
-            }
-
-            const mediaList = await response.json();
-
-            // Cache the media list
-            await this.kv.put(cacheKey, JSON.stringify(mediaList), { expirationTtl: CACHE_TTL });
-
-            return mediaList;
-        } catch (error) {
-            console.error('Error fetching property media:', error);
             throw error;
         }
     }
@@ -185,8 +146,6 @@ class FeaturedPropertiesManager {
     async setFeaturedPropertyIds(propertyIds) {
         try {
             await this.kv.put('featured_properties', JSON.stringify(propertyIds));
-            // Invalidate cache when featured properties change
-            await this.kv.delete('properties_cache');
             return true;
         } catch (error) {
             console.error('Error setting featured properties:', error);
@@ -210,31 +169,6 @@ class FeaturedPropertiesManager {
         } catch (error) {
             console.error('Error toggling featured property:', error);
             throw error;
-        }
-    }
-}
-
-// Optimized image processor
-class ImageProcessor {
-    static async processBase64Image(base64Data, filename) {
-        try {
-            // Validate base64 data
-            if (!base64Data || base64Data.length < 10) {
-                throw new Error('Invalid image data');
-            }
-
-            // Use more efficient base64 decoding
-            const binary = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-
-            // Determine content type
-            let contentType = 'image/jpeg';
-            if (filename.match(/\.png$/i)) contentType = 'image/png';
-            else if (filename.match(/\.gif$/i)) contentType = 'image/gif';
-            else if (filename.match(/\.webp$/i)) contentType = 'image/webp';
-
-            return { binary, contentType };
-        } catch (error) {
-            throw new Error('Failed to process image: ' + error.message);
         }
     }
 }
@@ -268,38 +202,87 @@ async function handleLogin(request, env) {
             return errorResponse('Invalid credentials', 401);
         }
     } catch (error) {
-        return errorResponse('Login failed: ' + error.message, 500);
+        return errorResponse('Login failed', 500);
     }
 }
 
 async function handleLogout(request, env) {
-    return jsonResponse({
+    return new Response(JSON.stringify({
         success: true,
         message: 'Logout successful'
+    }), {
+        status: 200,
+        headers: {
+            ...corsHeaders,
+            'Set-Cookie': 'session=; HttpOnly; Secure; SameSite=Strict; Max-Age=0'
+        }
     });
 }
 
+// Middleware to check authentication
 function requireAuth(request, env) {
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return errorResponse('Authentication required', 401);
-    }
-
-    const token = authHeader.substring(7);
     const authManager = new AuthManager(env);
 
-    if (!authManager.verifySessionToken(token)) {
-        return errorResponse('Invalid or expired session', 401);
+    // Check for session token in cookie
+    const cookieHeader = request.headers.get('Cookie');
+    if (cookieHeader) {
+        const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
+            const [key, value] = cookie.trim().split('=');
+            acc[key] = value;
+            return acc;
+        }, {});
+
+        if (cookies.session && authManager.verifySessionToken(cookies.session)) {
+            return null; // Authenticated
+        }
     }
 
-    return null; // No error
+    // Check for Authorization header (for API calls)
+    const authHeader = request.headers.get('Authorization');
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.substring(7);
+        if (authManager.verifySessionToken(token)) {
+            return null; // Authenticated
+        }
+    }
+
+    return errorResponse('Authentication required', 401);
 }
 
-// Optimized property handlers
+// API Handlers
 async function handleGetProperties(request, env) {
     try {
         const rentman = new RentmanAPI(env);
         const properties = await rentman.fetchProperties();
+
+        async function handleGetProperties(request, env) {
+            try {
+                // Check cache first
+                const cacheKey = 'properties_cache';
+                const cached = await env.FEATURED_PROPERTIES.get(cacheKey, 'json');
+                if (cached) {
+                    return jsonResponse({
+                        success: true,
+                        data: cached,
+                        count: cached.length,
+                    });
+                }
+
+                const rentman = new RentmanAPI(env);
+                const properties = await rentman.fetchProperties();
+
+                // Cache the response for future requests
+                await env.FEATURED_PROPERTIES.put(cacheKey, JSON.stringify(properties), { expirationTtl: 300 });
+
+                return jsonResponse({
+                    success: true,
+                    data: properties,
+                    count: properties.length,
+                });
+            } catch (error) {
+                return errorResponse('Failed to fetch properties', 500);
+            }
+        }
 
         return jsonResponse({
             success: true,
@@ -325,6 +308,41 @@ async function handleGetFeaturedProperties(request, env) {
             featuredIds.includes(String(property.propref))
         );
 
+        async function handleGetFeaturedProperties(request, env) {
+            try {
+                // Create cache key based on featured IDs to handle dependencies
+                const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES);
+                const featuredIds = await featuredManager.getFeaturedPropertyIds();
+                const cacheKey = `featured_properties_${featuredIds.sort().join(',')}`;
+                const cached = await env.FEATURED_PROPERTIES.get(cacheKey, 'json');
+                if (cached) {
+                    return jsonResponse({
+                        success: true,
+                        data: cached,
+                        count: cached.length,
+                    });
+                }
+
+                const rentman = new RentmanAPI(env);
+                const allProperties = await rentman.fetchProperties();
+
+                const featuredProperties = allProperties.filter(property =>
+                    featuredIds.includes(String(property.propref))
+                );
+
+                // Cache the filtered results
+                await env.FEATURED_PROPERTIES.put(cacheKey, JSON.stringify(featuredProperties), { expirationTtl: 300 });
+
+                return jsonResponse({
+                    success: true,
+                    data: featuredProperties,
+                    count: featuredProperties.length,
+                });
+            } catch (error) {
+                return errorResponse('Failed to fetch featured properties', 500);
+            }
+        }
+
         return jsonResponse({
             success: true,
             data: featuredProperties,
@@ -336,6 +354,7 @@ async function handleGetFeaturedProperties(request, env) {
 }
 
 async function handleToggleFeaturedProperty(request, env) {
+    // Check authentication
     const authError = requireAuth(request, env);
     if (authError) return authError;
 
@@ -360,6 +379,7 @@ async function handleToggleFeaturedProperty(request, env) {
 }
 
 async function handleAdminProperties(request, env) {
+    // Check authentication
     const authError = requireAuth(request, env);
     if (authError) return authError;
 
@@ -372,18 +392,11 @@ async function handleAdminProperties(request, env) {
             featuredManager.getFeaturedPropertyIds(),
         ]);
 
-        // Process properties in chunks to avoid memory issues
-        const chunkSize = 50;
-        const propertiesWithFeaturedStatus = [];
-
-        for (let i = 0; i < allProperties.length; i += chunkSize) {
-            const chunk = allProperties.slice(i, i + chunkSize);
-            const processedChunk = chunk.map(property => ({
-                ...property,
-                isFeatured: featuredIds.includes(String(property.propref)),
-            }));
-            propertiesWithFeaturedStatus.push(...processedChunk);
-        }
+        // Add featured status to each property
+        const propertiesWithFeaturedStatus = allProperties.map(property => ({
+            ...property,
+            isFeatured: featuredIds.includes(String(property.propref)),
+        }));
 
         return jsonResponse({
             success: true,
@@ -403,62 +416,58 @@ async function handlePropertyMedia(request, env) {
         const propref = url.searchParams.get('propref');
         const filename = url.searchParams.get('filename');
         const token = env.RENTMAN_API_TOKEN;
-
         if (!token) {
             return errorResponse('Missing Rentman API token', 500);
         }
 
         if (propref) {
             // Fetch media list for the property
-            const rentman = new RentmanAPI(env);
-            const mediaList = await rentman.fetchPropertyMedia(propref);
-
-            return jsonResponse(mediaList);
-        } else if (filename) {
-            // Fetch the image itself with caching
-            const cacheKey = `image_${filename}`;
-            const cachedImage = await env.FEATURED_PROPERTIES.get(cacheKey, 'arrayBuffer');
-
-            if (cachedImage) {
-                let contentType = 'image/jpeg';
-                if (filename.match(/\.png$/i)) contentType = 'image/png';
-                else if (filename.match(/\.gif$/i)) contentType = 'image/gif';
-                else if (filename.match(/\.webp$/i)) contentType = 'image/webp';
-
-                return new Response(cachedImage, {
-                    headers: {
-                        'Content-Type': contentType,
-                        'Cache-Control': 'public, max-age=86400',
-                        ...corsHeaders
-                    }
-                });
+            const rentmanUrl = `https://www.rentman.online/propertymedia.php?propref=${encodeURIComponent(propref)}`;
+            const rentmanResponse = await fetch(rentmanUrl, {
+                headers: { 'token': token }
+            });
+            if (!rentmanResponse.ok) {
+                const text = await rentmanResponse.text();
+                return errorResponse(`Failed to fetch media list: ${rentmanResponse.status} - ${text}`, 502);
             }
-
-            // Fetch new image with timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-
-            const rentmanUrl = `${env.RENTMAN_API_BASE_URL || 'https://www.rentman.online'}/propertymedia.php?filename=${encodeURIComponent(filename)}`;
+            let mediaList;
+            try {
+                mediaList = await rentmanResponse.json();
+            } catch (err) {
+                return errorResponse('Invalid JSON from Rentman media list', 502);
+            }
+            return new Response(JSON.stringify(mediaList), {
+                headers: { 'Content-Type': 'application/json', ...corsHeaders }
+            });
+        } else if (filename) {
+            // Fetch the image itself
+            const rentmanUrl = `https://www.rentman.online/propertymedia.php?filename=${encodeURIComponent(filename)}`;
             const rentmanResponse = await fetch(rentmanUrl, {
                 headers: {
                     'token': token,
                     'ACCEPT': 'application/base64'
-                },
-                signal: controller.signal
+                }
             });
-
-            clearTimeout(timeoutId);
-
             if (!rentmanResponse.ok) {
-                throw new Error(`Failed to fetch image: ${rentmanResponse.status}`);
+                const text = await rentmanResponse.text();
+                return errorResponse(`Failed to fetch image: ${rentmanResponse.status} - ${text}`, 502);
             }
-
             const base64 = await rentmanResponse.text();
-            const { binary, contentType } = await ImageProcessor.processBase64Image(base64, filename);
-
-            // Cache the processed image
-            await env.FEATURED_PROPERTIES.put(cacheKey, binary, { expirationTtl: IMAGE_CACHE_TTL });
-
+            if (!base64 || base64.length < 10) {
+                return errorResponse('No image data received from Rentman', 502);
+            }
+            // Convert base64 to binary
+            let binary;
+            try {
+                binary = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+            } catch (err) {
+                return errorResponse('Failed to decode base64 image', 502);
+            }
+            // Guess content type from filename extension
+            let contentType = 'image/jpeg';
+            if (filename.match(/\.png$/i)) contentType = 'image/png';
+            else if (filename.match(/\.gif$/i)) contentType = 'image/gif';
+            else if (filename.match(/\.webp$/i)) contentType = 'image/webp';
             return new Response(binary, {
                 headers: {
                     'Content-Type': contentType,
@@ -474,7 +483,7 @@ async function handlePropertyMedia(request, env) {
     }
 }
 
-// Simplified HTML generation (moved to separate functions to reduce memory usage)
+// Login page HTML
 function getLoginHTML() {
     return `<!DOCTYPE html>
 <html lang="en">
@@ -602,6 +611,7 @@ function getLoginHTML() {
             const loading = document.getElementById('loading');
             const error = document.getElementById('error');
             
+            // Show loading state
             loginBtn.disabled = true;
             loading.style.display = 'block';
             error.style.display = 'none';
@@ -616,13 +626,15 @@ function getLoginHTML() {
                 const data = await response.json();
                 
                 if (data.success) {
+                    // Store session token
                     localStorage.setItem('sessionToken', data.sessionToken);
+                    // Redirect to admin dashboard
                     window.location.href = '/admin';
                 } else {
                     throw new Error(data.error || 'Login failed');
                 }
             } catch (error) {
-                showError(error.message);
+                showError('Invalid username or password');
             } finally {
                 loginBtn.disabled = false;
                 loading.style.display = 'none';
@@ -630,217 +642,88 @@ function getLoginHTML() {
         });
         
         function showError(message) {
-            const error = document.getElementById('error');
-            error.textContent = message;
-            error.style.display = 'block';
+            const errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
         }
     </script>
 </body>
 </html>`;
 }
 
+// Admin interface HTML
 function getAdminHTML() {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>London Move Admin - Property Management</title>
+    <title>London Move Admin Dashboard</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-            background: #f5f7fa;
-            color: #333;
-        }
-        .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        .header-content {
-            max-width: 1200px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .header h1 {
-            font-size: 24px;
-            font-weight: 600;
-        }
-        .stats {
-            display: flex;
-            gap: 20px;
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .header { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .header h1 { color: #333; margin-bottom: 10px; }
+        .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .logout-btn { 
+            background: #dc3545; 
+            color: white; 
+            border: none; 
+            padding: 8px 16px; 
+            border-radius: 4px; 
+            cursor: pointer; 
             font-size: 14px;
         }
-        .stat {
-            background: rgba(255,255,255,0.2);
-            padding: 8px 16px;
-            border-radius: 20px;
-        }
-        .logout-btn {
-            background: rgba(255,255,255,0.2);
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.3s;
-        }
-        .logout-btn:hover {
-            background: rgba(255,255,255,0.3);
-        }
-        .main-content {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .search-bar {
-            background: white;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            margin-bottom: 20px;
-        }
-        .search-input {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e1e5e9;
-            border-radius: 6px;
-            font-size: 16px;
-            transition: border-color 0.3s;
-        }
-        .search-input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        .property-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
-        }
-        .property-card {
-            background: white;
-            border-radius: 12px;
-            overflow: hidden;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-        .property-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }
-        .property-image {
-            height: 200px;
-            background: #f0f0f0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #666;
-            font-size: 14px;
-        }
-        .property-content {
-            padding: 20px;
-        }
-        .property-title {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 8px;
-            color: #333;
-        }
-        .property-details {
-            color: #666;
-            margin-bottom: 8px;
-            font-size: 14px;
-        }
-        .property-price {
-            font-size: 16px;
-            font-weight: 600;
-            color: #667eea;
-            margin-bottom: 16px;
-        }
-        .featured-toggle {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .featured-toggle label {
-            font-size: 14px;
-            color: #666;
-        }
-        .toggle {
-            width: 40px;
-            height: 20px;
-            background: #e1e5e9;
-            border-radius: 10px;
-            cursor: pointer;
-            position: relative;
-            transition: background 0.3s;
-        }
-        .toggle.active {
-            background: #667eea;
-        }
-        .toggle::after {
-            content: '';
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 16px;
-            height: 16px;
-            background: white;
-            border-radius: 50%;
-            transition: transform 0.3s;
-        }
-        .toggle.active::after {
-            transform: translateX(20px);
-        }
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #666;
-        }
-        .error {
-            background: #fee;
-            color: #c33;
-            padding: 12px;
-            border-radius: 6px;
-            margin-bottom: 20px;
-            display: none;
-        }
+        .logout-btn:hover { background: #c82333; }
+        .stats { display: flex; gap: 20px; }
+        .stat { background: #f8f9fa; padding: 10px; border-radius: 4px; }
+        .controls { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .search { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 10px; }
+        .property-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        .property-card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .property-image { width: 100%; height: 200px; background: #eee; display: flex; align-items: center; justify-content: center; }
+        .property-content { padding: 15px; }
+        .property-title { font-weight: bold; margin-bottom: 10px; color: #333; }
+        .property-details { color: #666; margin-bottom: 10px; }
+        .property-price { font-size: 1.2em; font-weight: bold; color: #2c7be5; margin-bottom: 10px; }
+        .featured-toggle { display: flex; align-items: center; gap: 10px; }
+        .toggle { position: relative; width: 50px; height: 24px; background: #ccc; border-radius: 12px; cursor: pointer; transition: background 0.3s; }
+        .toggle.active { background: #2c7be5; }
+        .toggle::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; background: white; border-radius: 50%; transition: transform 0.3s; }
+        .toggle.active::after { transform: translateX(26px); }
+        .loading { text-align: center; padding: 40px; color: #666; }
+        .error { background: #fee; color: #c33; padding: 10px; border-radius: 4px; margin-bottom: 20px; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div class="header-content">
-            <div>
-                <h1>London Move Admin</h1>
-                <div class="stats">
-                    <div class="stat">Total: <span id="totalCount">0</span></div>
-                    <div class="stat">Featured: <span id="featuredCount">0</span></div>
-                </div>
+    <div class="container">
+        <div class="header">
+            <div class="header-top">
+                <h1>London Move Admin Dashboard</h1>
+                <button class="logout-btn" onclick="logout()">Logout</button>
             </div>
-            <button class="logout-btn" onclick="logout()">Logout</button>
-        </div>
-    </div>
-
-    <div class="main-content">
-        <div class="search-bar">
-            <input type="text" id="searchInput" class="search-input" placeholder="Search properties...">
+            <div class="stats">
+                <div class="stat">Total Properties: <span id="totalCount">-</span></div>
+                <div class="stat">Featured Properties: <span id="featuredCount">-</span></div>
+            </div>
         </div>
         
-        <div id="error" class="error"></div>
+        <div class="controls">
+            <input type="text" class="search" placeholder="Search properties..." id="searchInput">
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
         <div id="loading" class="loading">Loading properties...</div>
         <div id="propertyGrid" class="property-grid" style="display: none;"></div>
     </div>
 
     <script>
-        let sessionToken = localStorage.getItem('sessionToken');
         let properties = [];
         let featuredIds = [];
+        let sessionToken = localStorage.getItem('sessionToken');
 
+        // Check authentication on page load
         if (!sessionToken) {
             window.location.href = '/login';
         }
@@ -848,10 +731,13 @@ function getAdminHTML() {
         async function loadProperties() {
             try {
                 const response = await fetch('/api/admin/properties', {
-                    headers: { 'Authorization': 'Bearer ' + sessionToken }
+                    headers: {
+                        'Authorization': 'Bearer ' + sessionToken
+                    }
                 });
                 
                 if (response.status === 401) {
+                    // Unauthorized - redirect to login
                     localStorage.removeItem('sessionToken');
                     window.location.href = '/login';
                     return;
@@ -915,6 +801,7 @@ function getAdminHTML() {
                 });
                 
                 if (response.status === 401) {
+                    // Unauthorized - redirect to login
                     localStorage.removeItem('sessionToken');
                     window.location.href = '/login';
                     return;
@@ -923,6 +810,7 @@ function getAdminHTML() {
                 const data = await response.json();
                 
                 if (data.success) {
+                    // Instead of updating local state, reload the properties from the backend to ensure sync
                     await loadProperties();
                 } else {
                     throw new Error(data.error || 'Failed to toggle featured status');
@@ -936,7 +824,9 @@ function getAdminHTML() {
             try {
                 await fetch('/api/auth/logout', {
                     method: 'POST',
-                    headers: { 'Authorization': 'Bearer ' + sessionToken }
+                    headers: {
+                        'Authorization': 'Bearer ' + sessionToken
+                    }
                 });
             } catch (error) {
                 console.error('Logout error:', error);
@@ -955,6 +845,7 @@ function getAdminHTML() {
             }, 5000);
         }
 
+        // Search functionality
         document.getElementById('searchInput').addEventListener('input', (e) => {
             const searchTerm = e.target.value.toLowerCase();
             const filtered = properties.filter(property => 
@@ -965,6 +856,7 @@ function getAdminHTML() {
             renderProperties(filtered);
         });
 
+        // Load properties on page load
         loadProperties();
     </script>
 </body>
@@ -1047,4 +939,4 @@ export default {
 };
 
 // Export classes for testing
-export { RentmanAPI, FeaturedPropertiesManager, AuthManager, ImageProcessor };
+export { RentmanAPI, FeaturedPropertiesManager, AuthManager };
