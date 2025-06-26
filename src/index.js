@@ -169,7 +169,9 @@ class RentmanAPI {
 // Featured Properties Manager
 class FeaturedPropertiesManager {
     constructor(kv, env) {
-        this.kv = kv; this.maxFeatured = parseInt(env.MAX_FEATURED_PROPERTIES) || 7; this.minFeatured = 7;
+        this.kv = kv;
+        this.maxFeatured = parseInt(env.MAX_FEATURED_PROPERTIES) || 7;
+        this.minFeatured = 0;
     }
 
     async getFeaturedPropertyIds() {
@@ -199,8 +201,15 @@ class FeaturedPropertiesManager {
             const featured = await this.getFeaturedPropertyIds();
             const index = featured.indexOf(propertyId);
 
-            if (index > -1) { // Removing a property if (featured.length <= this.minFeatured) { throw new Error(`Cannot remove property. Minimum of ${this.minFeatured} featured properties required.`); } featured.splice(index, 1);
-            } else { // Adding a property if (featured.length >= this.maxFeatured) { throw new Error(`Cannot add property. Maximum of ${this.maxFeatured} featured properties allowed.`); } featured.push(propertyId);
+            if (index > -1) {
+                // Removing a property
+                featured.splice(index, 1);
+            } else {
+                // Adding a property
+                if (featured.length >= this.maxFeatured) {
+                    throw new Error(`Cannot add property. Maximum of ${this.maxFeatured} featured properties allowed.`);
+                }
+                featured.push(propertyId);
             }
 
             await this.setFeaturedPropertyIds(featured);
@@ -345,7 +354,17 @@ async function handleToggleFeaturedProperty(request, env) {
         }
 
         const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES, env);
-        try { const updatedFeatured = await featuredManager.toggleFeaturedProperty(propertyId); return jsonResponse({ success: true, data: { featuredPropertyIds: updatedFeatured }, message: "Featured status updated successfully", limits: { min: featuredManager.minFeatured, max: featuredManager.maxFeatured, current: updatedFeatured.length } }); } catch (limitError) { return errorResponse(limitError.message, 400); }
+        try {
+            const updatedFeatured = await featuredManager.toggleFeaturedProperty(propertyId);
+            return jsonResponse({
+                success: true,
+                data: { featuredPropertyIds: updatedFeatured },
+                message: "Featured status updated successfully",
+                limits: { min: featuredManager.minFeatured, max: featuredManager.maxFeatured, current: updatedFeatured.length }
+            });
+        } catch (limitError) {
+            return errorResponse(limitError.message, 400);
+        }
     } catch (error) {
         return errorResponse('Failed to toggle featured property', 500);
     }
@@ -854,6 +873,7 @@ function getAdminHTML() {
                 if (data.success) {
                     properties = data.data;
                     featuredIds = properties.filter(p => p.isFeatured).map(p => p.propref);
+                    console.log('Loaded properties:', properties.length, 'Featured IDs:', featuredIds);
                     updateStats();
                     renderProperties();
                     document.getElementById('loading').style.display = 'none';
@@ -897,6 +917,8 @@ function getAdminHTML() {
 
         async function toggleFeatured(propertyId) {
             try {
+                console.log('Toggling featured status for property:', propertyId);
+                
                 const response = await fetch('/api/properties/featured/toggle', {
                     method: 'POST',
                     headers: { 
@@ -906,6 +928,8 @@ function getAdminHTML() {
                     body: JSON.stringify({ propertyId })
                 });
                 
+                console.log('Toggle response status:', response.status);
+                
                 if (response.status === 401) {
                     localStorage.removeItem('sessionToken');
                     window.location.href = '/login';
@@ -913,13 +937,16 @@ function getAdminHTML() {
                 }
                 
                 const data = await response.json();
+                console.log('Toggle response data:', data);
                 
                 if (data.success) {
+                    console.log('Toggle successful, reloading properties...');
                     await loadProperties();
                 } else {
                     throw new Error(data.error || 'Failed to toggle featured status');
                 }
             } catch (error) {
+                console.error('Toggle error:', error);
                 showError('Failed to toggle featured status: ' + error.message);
             }
         }
@@ -1040,7 +1067,3 @@ export default {
 
 // Export classes for testing
 export { RentmanAPI, FeaturedPropertiesManager, AuthManager, ImageProcessor };
-
-
-
-
