@@ -170,8 +170,8 @@ class RentmanAPI {
 class FeaturedPropertiesManager {
     constructor(kv, env) {
         this.kv = kv;
-        this.maxFeatured = parseInt(env.MAX_FEATURED_PROPERTIES) || 7;
-        this.minFeatured = 0;
+        this.maxFeatured = 10;
+        this.minFeatured = 7;
     }
 
     async getFeaturedPropertyIds() {
