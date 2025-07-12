@@ -171,6 +171,37 @@ The following environment variables must be configured:
 
 **Development Mode**: Authentication is currently disabled for easier development and testing.
 
+## Caching Strategy
+
+### Server-Side Caching
+- **KV Storage**: 5-minute TTL for property data
+- **Cache Keys**: 
+  - `properties_cache` - All properties
+  - `media_list_{propref}` - Property media
+- **Cache Invalidation**: Automatic when featured properties change
+
+### Client-Side Caching
+- **LocalStorage**: 5-minute TTL for instant loading
+- **Smart Size Management**: Excludes large image data from cache
+- **Progressive Fallback**: Full → Partial → Minimal cache levels
+- **Background Refresh**: Silent updates without user waiting
+- **Fallback Support**: Uses cached data during network failures
+- **Smart Invalidation**: Clears cache when featured properties change
+- **Quota Protection**: Prevents localStorage quota exceeded errors
+
+### Cache Optimization Levels
+1. **Full Cache**: All property data (excluding images) ~50-200KB
+2. **Partial Cache**: First 20 properties only ~25-100KB
+3. **Minimal Cache**: Essential fields only ~10-50KB
+
+### Performance Benefits
+- **First Load**: ~2-3 seconds (initial API call)
+- **Subsequent Loads**: ~0.1-0.2 seconds (from cache)
+- **Background Updates**: Transparent to users
+- **Offline Support**: Works with cached data
+- **Storage Efficient**: Images load fresh (server-cached)
+- **Error Resilient**: Multiple fallback strategies
+
 ## Security Considerations
 
 1. **API Credentials**: Never expose Rentman API credentials in client-side code

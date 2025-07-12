@@ -197,50 +197,295 @@ function getAdminHTML(env = {}) {
     <script>
         let properties = [];
         let featuredIds = [];
+        
+        // Cache configuration
+        const CACHE_KEY = 'londonmove_properties_cache';
+        const CACHE_TTL = 300000; // 5 minutes in milliseconds
+        const CACHE_VERSION = '1.0';
 
         async function initializeAdmin() {
             try {
-                // Load properties directly without authentication
+                // Try to load from cache first
                 await loadProperties();
+                
+                // Start background refresh if using cached data
+                if (isUsingCachedData()) {
+                    setTimeout(refreshCacheInBackground, 2000);
+                }
             } catch (error) {
                 console.error('Initialization error:', error);
                 showError('Failed to initialize admin interface: ' + error.message);
             }
         }
 
-        async function loadProperties() {
+        function getCachedData() {
             try {
-                const response = await fetch('/api/properties');
-                const data = await response.json();
+                const cached = localStorage.getItem(CACHE_KEY);
+                if (!cached) return null;
                 
-                if (data.success) {
-                    properties = data.data;
+                const { data, timestamp, version } = JSON.parse(cached);
+                const now = Date.now();
+                
+                // Check if cache is still valid
+                if (now - timestamp < CACHE_TTL && version === CACHE_VERSION) {
+                    const cacheAge = Math.round((now - timestamp) / 1000);
+                    const cacheType = data.isMinimalCache ? ' (minimal)' : data.isPartialCache ? ' (partial)' : '';
+                    console.log('🚀 Using cached data (age:', cacheAge, 'seconds)' + cacheType);
+                    return data;
+                }
+                
+                // Cache expired or version mismatch
+                console.log('⏰ Cache expired or outdated, will fetch fresh data');
+                return null;
+            } catch (error) {
+                console.error('Error reading cache:', error);
+                return null;
+            }
+        }
+
+        function setCachedData(data) {
+            try {
+                // Create a lightweight version of the data for caching
+                const lightweightData = {
+                    properties: data.properties.map(property => {
+                        // Remove large image data from cache
+                        const { photo1binary, ...lightProperty } = property;
+                        return lightProperty;
+                    }),
+                    featuredIds: data.featuredIds
+                };
+                
+                const cacheData = {
+                    data: lightweightData,
+                    timestamp: Date.now(),
+                    version: CACHE_VERSION
+                };
+                
+                const serializedData = JSON.stringify(cacheData);
+                const sizeInMB = (serializedData.length / (1024 * 1024)).toFixed(2);
+                
+                // Check if data size is reasonable (under 4MB)
+                if (serializedData.length > 4 * 1024 * 1024) {
+                    console.warn('⚠️ Cache data too large (' + sizeInMB + 'MB), implementing selective caching...');
                     
-                    // Get featured properties
-                    const featuredResponse = await fetch('/api/featured');
-                    const featuredData = await featuredResponse.json();
+                    // Use selective caching - only cache essential data
+                    const essentialData = {
+                        properties: data.properties.slice(0, 20).map(property => ({
+                            propref: property.propref,
+                            displayaddress: property.displayaddress,
+                            displayprice: property.displayprice,
+                            beds: property.beds,
+                            baths: property.baths,
+                            TYPE: property.TYPE,
+                            isFeatured: property.isFeatured
+                        })),
+                        featuredIds: data.featuredIds,
+                        isPartialCache: true
+                    };
                     
-                    if (featuredData.success) {
-                        featuredIds = featuredData.data.map(p => p.propref);
+                    const essentialCacheData = {
+                        data: essentialData,
+                        timestamp: Date.now(),
+                        version: CACHE_VERSION
+                    };
+                    
+                    localStorage.setItem(CACHE_KEY, JSON.stringify(essentialCacheData));
+                    console.log('💾 Essential data cached successfully (partial cache)');
+                } else {
+                    localStorage.setItem(CACHE_KEY, serializedData);
+                    console.log('💾 Data cached successfully (' + sizeInMB + 'MB)');
+                }
+            } catch (error) {
+                console.error('Error caching data:', error);
+                
+                // Fallback: Try to cache just the essential property info
+                try {
+                    const minimalData = {
+                        properties: data.properties.map(property => ({
+                            propref: property.propref,
+                            displayaddress: property.displayaddress,
+                            displayprice: property.displayprice,
+                            beds: property.beds,
+                            baths: property.baths,
+                            TYPE: property.TYPE,
+                            isFeatured: property.isFeatured
+                        })),
+                        featuredIds: data.featuredIds,
+                        isMinimalCache: true
+                    };
+                    
+                    const minimalCacheData = {
+                        data: minimalData,
+                        timestamp: Date.now(),
+                        version: CACHE_VERSION
+                    };
+                    
+                    localStorage.setItem(CACHE_KEY, JSON.stringify(minimalCacheData));
+                    console.log('💾 Minimal data cached successfully (fallback)');
+                } catch (fallbackError) {
+                    console.error('❌ Failed to cache even minimal data:', fallbackError);
+                }
+            }
+        }
+
+        function isUsingCachedData() {
+            return getCachedData() !== null;
+        }
+
+        async function loadProperties(forceRefresh = false) {
+            try {
+                let fromCache = false;
+                
+                // Try cache first unless force refresh
+                if (!forceRefresh) {
+                    const cachedData = getCachedData();
+                    if (cachedData) {
+                        properties = cachedData.properties;
+                        featuredIds = cachedData.featuredIds;
+                        fromCache = true;
                         
-                        // Add featured status to properties
-                        properties = properties.map(property => ({
-                            ...property,
-                            isFeatured: featuredIds.includes(property.propref)
-                        }));
+                        updateStats();
+                        renderProperties();
+                        document.getElementById('loading').style.display = 'none';
+                        document.getElementById('propertyGrid').style.display = 'grid';
+                        
+                        if (fromCache) {
+                            const cacheType = cachedData.isMinimalCache ? 'minimal cached' : 
+                                            cachedData.isPartialCache ? 'partial cached' : 'cached';
+                            showCacheStatus('Using ' + cacheType + ' data');
+                        }
+                        return;
                     }
+                }
+                
+                // Show loading state
+                if (!fromCache) {
+                    document.getElementById('loading').style.display = 'block';
+                    document.getElementById('propertyGrid').style.display = 'none';
+                }
+                
+                console.log('📡 Fetching fresh data from API...');
+                
+                // Fetch fresh data
+                const [propertiesResponse, featuredResponse] = await Promise.all([
+                    fetch('/api/properties'),
+                    fetch('/api/featured')
+                ]);
+                
+                const propertiesData = await propertiesResponse.json();
+                const featuredData = await featuredResponse.json();
+                
+                if (propertiesData.success && featuredData.success) {
+                    properties = propertiesData.data;
+                    featuredIds = featuredData.data.map(p => p.propref);
                     
-                    console.log('Loaded properties:', properties.length, 'Featured IDs:', featuredIds);
+                    // Add featured status to properties
+                    properties = properties.map(property => ({
+                        ...property,
+                        isFeatured: featuredIds.includes(property.propref)
+                    }));
+                    
+                    // Cache the data
+                    setCachedData({ properties, featuredIds });
+                    
+                    console.log('✅ Loaded properties:', properties.length, 'Featured IDs:', featuredIds);
                     updateStats();
                     renderProperties();
                     document.getElementById('loading').style.display = 'none';
                     document.getElementById('propertyGrid').style.display = 'grid';
+                    
+                    showCacheStatus('Data refreshed');
                 } else {
-                    throw new Error(data.error || 'Failed to load properties');
+                    throw new Error(propertiesData.error || featuredData.error || 'Failed to load properties');
                 }
             } catch (error) {
+                console.error('Error loading properties:', error);
                 showError('Failed to load properties: ' + error.message);
                 document.getElementById('loading').style.display = 'none';
+                
+                // Try to use cached data as fallback
+                const cachedData = getCachedData();
+                if (cachedData && !forceRefresh) {
+                    properties = cachedData.properties;
+                    featuredIds = cachedData.featuredIds;
+                    
+                    properties = properties.map(property => ({
+                        ...property,
+                        isFeatured: featuredIds.includes(property.propref)
+                    }));
+                    
+                    updateStats();
+                    renderProperties();
+                    document.getElementById('propertyGrid').style.display = 'grid';
+                    
+                    const cacheType = cachedData.isMinimalCache ? 'minimal cached' : 
+                                    cachedData.isPartialCache ? 'partial cached' : 'cached';
+                    showCacheStatus('Using ' + cacheType + ' data (network error)');
+                }
+            }
+        }
+
+        async function refreshCacheInBackground() {
+            try {
+                console.log('🔄 Background refresh started...');
+                await loadProperties(true);
+            } catch (error) {
+                console.error('Background refresh failed:', error);
+            }
+        }
+
+        function showCacheStatus(message) {
+            const statusDiv = document.getElementById('success');
+            statusDiv.textContent = message;
+            statusDiv.style.display = 'block';
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 2000);
+        }
+
+        function clearCache() {
+            localStorage.removeItem(CACHE_KEY);
+            console.log('🗑️ Cache cleared');
+        }
+
+        function getCacheStats() {
+            try {
+                const cached = localStorage.getItem(CACHE_KEY);
+                if (!cached) return { exists: false, size: 0, sizeFormatted: '0 KB' };
+                
+                const sizeInBytes = cached.length;
+                const sizeInKB = (sizeInBytes / 1024).toFixed(2);
+                const sizeInMB = (sizeInBytes / (1024 * 1024)).toFixed(2);
+                
+                return {
+                    exists: true,
+                    size: sizeInBytes,
+                    sizeFormatted: sizeInBytes > 1024 * 1024 ? sizeInMB + ' MB' : sizeInKB + ' KB'
+                };
+            } catch (error) {
+                console.error('Error getting cache stats:', error);
+                return { exists: false, size: 0, sizeFormatted: '0 KB' };
+            }
+        }
+
+        function showCacheInfo() {
+            const stats = getCacheStats();
+            const cachedData = getCachedData();
+            
+            if (stats.exists && cachedData) {
+                const cacheType = cachedData.isMinimalCache ? 'Minimal' : 
+                                cachedData.isPartialCache ? 'Partial' : 'Full';
+                const propertyCount = cachedData.properties ? cachedData.properties.length : 0;
+                
+                console.log('📊 Cache Info:', {
+                    type: cacheType,
+                    size: stats.sizeFormatted,
+                    properties: propertyCount,
+                    featured: cachedData.featuredIds ? cachedData.featuredIds.length : 0,
+                    ageSeconds: Math.round((Date.now() - cachedData.timestamp) / 1000)
+                });
+            } else {
+                console.log('📊 No cache data available');
             }
         }
 
@@ -286,8 +531,10 @@ function getAdminHTML(env = {}) {
                 
                 const data = await response.json();
                 if (data.success) {
+                    // Clear cache since featured properties changed
+                    clearCache();
                     showSuccess('Featured status updated successfully');
-                    await loadProperties(); // Reload to reflect changes
+                    await loadProperties(true); // Force refresh
                 } else {
                     throw new Error(data.error || 'Failed to toggle featured status');
                 }
