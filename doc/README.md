@@ -62,9 +62,9 @@ Visit `http://localhost:8787` to test your API locally.
 ### 5. Deploy to Production
 
 ```bash
-# Set production secrets
+# Set production secrets (if re-enabling authentication)
 wrangler secret put ADMIN_USERNAME
-wrangler secret put ADMIN_PASSWORD
+wrangler secret put ADMIN_PASSWORD  
 wrangler secret put SESSION_SECRET
 
 # Deploy
@@ -75,21 +75,20 @@ npm run deploy
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | API information |
-| `/api/properties` | GET | Get all properties |
-| `/api/properties/featured` | GET | Get featured properties |
-| `/api/properties/featured/toggle` | POST | Toggle featured status |
-| `/api/admin/properties` | GET | Admin property list |
+| `/` | GET | API information / Admin dashboard |
 | `/admin` | GET | Admin dashboard |
+| `/api/properties` | GET | Get all properties |
+| `/api/featured` | GET | Get featured properties |
+
+**Note:** Authentication is currently disabled for development purposes.
 
 ## 🎨 Admin Interface
 
-Access the admin dashboard at `/admin` to:
+Access the admin dashboard at `/` or `/admin` to:
 
 - View all properties from Rentman
-- Toggle featured status for properties
-- Search and filter properties
-- Monitor featured property count
+- Browse property listings with search functionality
+- Monitor property data
 - Real-time updates without page refresh
 
 ## 🔗 Framer Integration
@@ -97,13 +96,17 @@ Access the admin dashboard at `/admin` to:
 The API is designed for seamless Framer integration:
 
 ```javascript
-// Fetch featured properties
-const response = await fetch('https://your-worker.workers.dev/api/properties/featured');
-const data = await response.json();
+// Fetch all properties
+const allResponse = await fetch('https://your-worker.workers.dev/api/properties');
+const allData = await allResponse.json();
 
-if (data.success) {
-  // Use data.data array in Framer
-  console.log(data.data);
+// Fetch featured properties
+const featuredResponse = await fetch('https://your-worker.workers.dev/api/featured');
+const featuredData = await featuredResponse.json();
+
+if (featuredData.success) {
+  // Use featuredData.data array in Framer
+  console.log(featuredData.data);
 }
 ```
 
@@ -120,13 +123,17 @@ if (data.success) {
 ```
 rentman-api-proxy/
 ├── src/
-│   └── index.js          # Main Cloudflare Worker
-├── doc/                  # Documentation
-├── public/               # Static assets
-├── test/                 # Test files
-├── wrangler.jsonc        # Cloudflare Worker configuration
-├── package.json          # Dependencies and scripts
-└── README.md            # This file
+│   ├── index.js              # Main Cloudflare Worker
+│   ├── handlers/             # Request handlers
+│   ├── classes/              # API classes
+│   ├── views/                # HTML views
+│   └── utils/                # Utility functions
+├── doc/                      # Documentation
+├── public/                   # Static assets
+├── test/                     # Test files
+├── wrangler.jsonc            # Cloudflare Worker configuration
+├── package.json              # Dependencies and scripts
+└── README.md                # This file
 ```
 
 ## 🔧 Configuration
@@ -182,6 +189,7 @@ wrangler tail --format pretty
 - **HTTPS**: Automatic SSL/TLS encryption
 - **Rate Limiting**: Configurable request rate limiting
 - **Input Validation**: Comprehensive request validation
+- **Authentication**: Currently disabled for development
 
 ## 🚀 Performance
 
@@ -238,8 +246,8 @@ npm run deploy
 
 ---
 
-**Built with ❤️ for real estate professionals** 
+**Built with ❤️ for real estate professionals**
 
-const featuredProperties = allProperties.filter(property =>
-    featuredIds.includes(String(property.propref))
-); 
+## 🔄 Current Status
+
+**Development Mode**: The application is currently running without authentication to simplify development and testing. All endpoints are accessible without login requirements. 

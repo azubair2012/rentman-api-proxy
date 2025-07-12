@@ -1,5 +1,5 @@
-// Simplified HTML generation
-function getAdminHTML() {
+// Simple admin interface without authentication
+function getAdminHTML(env = {}) {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -39,19 +39,6 @@ function getAdminHTML() {
             background: rgba(255,255,255,0.2);
             padding: 8px 16px;
             border-radius: 20px;
-        }
-        .logout-btn {
-            background: rgba(255,255,255,0.2);
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.3s;
-        }
-        .logout-btn:hover {
-            background: rgba(255,255,255,0.3);
         }
         .main-content {
             max-width: 1200px;
@@ -170,6 +157,14 @@ function getAdminHTML() {
             margin-bottom: 20px;
             display: none;
         }
+        .success {
+            background: #efe;
+            color: #373;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -182,7 +177,9 @@ function getAdminHTML() {
                     <div class="stat">Featured: <span id="featuredCount">0</span></div>
                 </div>
             </div>
-            <button class="logout-btn" onclick="logout()">Logout</button>
+            <div style="color: white; font-size: 14px;">
+                Property Management System
+            </div>
         </div>
     </div>
 
@@ -192,36 +189,47 @@ function getAdminHTML() {
         </div>
         
         <div id="error" class="error"></div>
+        <div id="success" class="success"></div>
         <div id="loading" class="loading">Loading properties...</div>
         <div id="propertyGrid" class="property-grid" style="display: none;"></div>
     </div>
 
     <script>
-        let sessionToken = localStorage.getItem('sessionToken');
         let properties = [];
         let featuredIds = [];
 
-        if (!sessionToken) {
-            window.location.href = '/login';
+        async function initializeAdmin() {
+            try {
+                // Load properties directly without authentication
+                await loadProperties();
+            } catch (error) {
+                console.error('Initialization error:', error);
+                showError('Failed to initialize admin interface: ' + error.message);
+            }
         }
 
         async function loadProperties() {
             try {
-                const response = await fetch('/api/admin/properties', {
-                    headers: { 'Authorization': 'Bearer ' + sessionToken }
-                });
-                
-                if (response.status === 401) {
-                    localStorage.removeItem('sessionToken');
-                    window.location.href = '/login';
-                    return;
-                }
-                
+                const response = await fetch('/api/properties');
                 const data = await response.json();
                 
                 if (data.success) {
                     properties = data.data;
-                    featuredIds = properties.filter(p => p.isFeatured).map(p => p.propref);
+                    
+                    // Get featured properties
+                    const featuredResponse = await fetch('/api/featured');
+                    const featuredData = await featuredResponse.json();
+                    
+                    if (featuredData.success) {
+                        featuredIds = featuredData.data.map(p => p.propref);
+                        
+                        // Add featured status to properties
+                        properties = properties.map(property => ({
+                            ...property,
+                            isFeatured: featuredIds.includes(property.propref)
+                        }));
+                    }
+                    
                     console.log('Loaded properties:', properties.length, 'Featured IDs:', featuredIds);
                     updateStats();
                     renderProperties();
@@ -241,7 +249,7 @@ function getAdminHTML() {
             document.getElementById('featuredCount').textContent = featuredIds.length;
         }
 
-                function renderProperties(filteredProperties = properties) {
+        function renderProperties(filteredProperties = properties) {
             const grid = document.getElementById('propertyGrid');
             grid.innerHTML = filteredProperties.map(property => \`
                 <div class="property-card">
@@ -268,49 +276,24 @@ function getAdminHTML() {
             try {
                 console.log('Toggling featured status for property:', propertyId);
                 
-                const response = await fetch('/api/properties/featured/toggle', {
+                const response = await fetch('/api/featured/toggle', {
                     method: 'POST',
                     headers: { 
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Bearer ' + sessionToken
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ propertyId })
                 });
                 
-                console.log('Toggle response status:', response.status);
-                
-                if (response.status === 401) {
-                    localStorage.removeItem('sessionToken');
-                    window.location.href = '/login';
-                    return;
-                }
-                
                 const data = await response.json();
-                console.log('Toggle response data:', data);
-                
                 if (data.success) {
-                    console.log('Toggle successful, reloading properties...');
-                    await loadProperties();
+                    showSuccess('Featured status updated successfully');
+                    await loadProperties(); // Reload to reflect changes
                 } else {
                     throw new Error(data.error || 'Failed to toggle featured status');
                 }
             } catch (error) {
                 console.error('Toggle error:', error);
                 showError('Failed to toggle featured status: ' + error.message);
-            }
-        }
-
-        async function logout() {
-            try {
-                await fetch('/api/auth/logout', {
-                    method: 'POST',
-                    headers: { 'Authorization': 'Bearer ' + sessionToken }
-                });
-            } catch (error) {
-                console.error('Logout error:', error);
-            } finally {
-                localStorage.removeItem('sessionToken');
-                window.location.href = '/login';
             }
         }
 
@@ -323,6 +306,15 @@ function getAdminHTML() {
             }, 5000);
         }
 
+        function showSuccess(message) {
+            const successDiv = document.getElementById('success');
+            successDiv.textContent = message;
+            successDiv.style.display = 'block';
+            setTimeout(() => {
+                successDiv.style.display = 'none';
+            }, 3000);
+        }
+
         document.getElementById('searchInput').addEventListener('input', (e) => {
             const searchTerm = e.target.value.toLowerCase();
             const filtered = properties.filter(property => 
@@ -333,7 +325,12 @@ function getAdminHTML() {
             renderProperties(filtered);
         });
 
-        loadProperties();
+        // Initialize when page loads
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeAdmin);
+        } else {
+            initializeAdmin();
+        }
     </script>
 </body>
 </html>`;

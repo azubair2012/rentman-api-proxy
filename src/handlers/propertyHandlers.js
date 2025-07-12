@@ -1,27 +1,59 @@
 import { RentmanAPI } from '../classes/RentmanAPI';
 import { FeaturedPropertiesManager } from '../classes/FeaturedPropertiesManager';
 import { ImageProcessor } from '../classes/ImageProcessor';
-import { errorResponse, jsonResponse, corsHeaders, IMAGE_CACHE_TTL } from '../utils/helpers';
-import { AuthManager } from '../classes/AuthManager';
-import { requireAuth } from './authHandlers';
 
-// Optimized property handlers
-async function handleGetProperties(request, env) {
+// Helper function to create JSON responses
+function jsonResponse(data, status = 200) {
+    return new Response(JSON.stringify(data), {
+        status,
+        headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+        },
+    });
+}
+
+// Helper function to create error responses
+function errorResponse(message, status = 400) {
+    return new Response(JSON.stringify({ error: message }), {
+        status,
+        headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+        },
+    });
+}
+
+// Get all properties
+async function getProperties(request, env, corsHeaders) {
     try {
         const rentman = new RentmanAPI(env);
         const properties = await rentman.fetchProperties();
 
-        return jsonResponse({
+        return new Response(JSON.stringify({
             success: true,
             data: properties,
             count: properties.length,
+        }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
         });
     } catch (error) {
-        return errorResponse('Failed to fetch properties', 500);
+        console.error('Error fetching properties:', error);
+        return new Response(JSON.stringify({ error: 'Failed to fetch properties' }), {
+            status: 500,
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+        });
     }
 }
 
-async function handleGetFeaturedProperties(request, env) {
+// Get featured properties
+async function getFeaturedProperties(request, env, corsHeaders) {
     try {
         const rentman = new RentmanAPI(env);
         const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES, env);
@@ -35,157 +67,170 @@ async function handleGetFeaturedProperties(request, env) {
             featuredIds.includes(String(property.propref))
         );
 
-        return jsonResponse({
+        return new Response(JSON.stringify({
             success: true,
             data: featuredProperties,
             count: featuredProperties.length,
+        }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
         });
     } catch (error) {
-        return errorResponse('Failed to fetch featured properties', 500);
+        console.error('Error fetching featured properties:', error);
+        return new Response(JSON.stringify({ error: 'Failed to fetch featured properties' }), {
+            status: 500,
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+        });
     }
 }
 
-async function handleToggleFeaturedProperty(request, env) {
-    const authError = requireAuth(request, env);
-    if (authError) return authError;
+// Add a new property (without auth)
+async function addProperty(request, env, corsHeaders) {
+    try {
+        const data = await request.json();
 
+        // For now, just return success since we don't have actual property creation
+        return new Response(JSON.stringify({
+            success: true,
+            message: 'Property addition feature not implemented yet',
+            data: data,
+        }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+        });
+    } catch (error) {
+        console.error('Error adding property:', error);
+        return new Response(JSON.stringify({ error: 'Failed to add property' }), {
+            status: 500,
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+        });
+    }
+}
+
+// Update a property (without auth)
+async function updateProperty(request, env, corsHeaders, propertyId) {
+    try {
+        const data = await request.json();
+
+        // For now, just return success since we don't have actual property update
+        return new Response(JSON.stringify({
+            success: true,
+            message: 'Property update feature not implemented yet',
+            propertyId: propertyId,
+            data: data,
+        }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+        });
+    } catch (error) {
+        console.error('Error updating property:', error);
+        return new Response(JSON.stringify({ error: 'Failed to update property' }), {
+            status: 500,
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+        });
+    }
+}
+
+// Delete a property (without auth)
+async function deleteProperty(request, env, corsHeaders, propertyId) {
+    try {
+        // For now, just return success since we don't have actual property deletion
+        return new Response(JSON.stringify({
+            success: true,
+            message: 'Property deletion feature not implemented yet',
+            propertyId: propertyId,
+        }), {
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+        });
+    } catch (error) {
+        console.error('Error deleting property:', error);
+        return new Response(JSON.stringify({ error: 'Failed to delete property' }), {
+            status: 500,
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+        });
+    }
+}
+
+// Toggle featured property (without auth)
+async function toggleFeaturedProperty(request, env, corsHeaders) {
     try {
         const { propertyId } = await request.json();
 
         if (!propertyId) {
-            return errorResponse('Property ID is required');
+            return new Response(JSON.stringify({ error: 'Property ID is required' }), {
+                status: 400,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+            });
         }
 
         const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES, env);
         try {
             const updatedFeatured = await featuredManager.toggleFeaturedProperty(propertyId);
-            return jsonResponse({
+            return new Response(JSON.stringify({
                 success: true,
                 data: { featuredPropertyIds: updatedFeatured },
                 message: "Featured status updated successfully",
-                limits: { min: featuredManager.minFeatured, max: featuredManager.maxFeatured, current: updatedFeatured.length }
+                limits: {
+                    min: featuredManager.minFeatured,
+                    max: featuredManager.maxFeatured,
+                    current: updatedFeatured.length
+                }
+            }), {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
             });
         } catch (limitError) {
-            return errorResponse(limitError.message, 400);
-        }
-    } catch (error) {
-        return errorResponse('Failed to toggle featured property', 500);
-    }
-}
-
-async function handleAdminProperties(request, env) {
-    const authError = requireAuth(request, env);
-    if (authError) return authError;
-
-    try {
-        const rentman = new RentmanAPI(env);
-        const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES, env);
-
-        const [allProperties, featuredIds] = await Promise.all([
-            rentman.fetchProperties(),
-            featuredManager.getFeaturedPropertyIds(),
-        ]);
-
-        // Process properties in chunks to avoid memory issues
-        const chunkSize = 50;
-        const propertiesWithFeaturedStatus = [];
-
-        for (let i = 0; i < allProperties.length; i += chunkSize) {
-            const chunk = allProperties.slice(i, i + chunkSize);
-            const processedChunk = chunk.map(property => ({
-                ...property,
-                isFeatured: featuredIds.includes(String(property.propref)),
-            }));
-            propertiesWithFeaturedStatus.push(...processedChunk);
-        }
-
-        return jsonResponse({
-            success: true,
-            data: propertiesWithFeaturedStatus,
-            count: propertiesWithFeaturedStatus.length,
-            featuredCount: featuredIds.length,
-        });
-    } catch (error) {
-        console.error('Admin properties error:', error);
-        return errorResponse('Failed to fetch admin properties: ' + error.message, 500);
-    }
-}
-
-async function handlePropertyMedia(request, env) {
-    try {
-        const url = new URL(request.url);
-        const propref = url.searchParams.get('propref');
-        const filename = url.searchParams.get('filename');
-        const token = env.RENTMAN_API_TOKEN;
-
-        if (!token) {
-            return errorResponse('Missing Rentman API token', 500);
-        }
-
-        if (propref) {
-            // Fetch media list for the property
-            const rentman = new RentmanAPI(env);
-            const mediaList = await rentman.fetchPropertyMedia(propref);
-
-            return jsonResponse(mediaList);
-        } else if (filename) {
-            // Fetch the image itself with caching
-            const cacheKey = `image_${filename}`;
-            const cachedImage = await env.FEATURED_PROPERTIES.get(cacheKey, 'arrayBuffer');
-
-            if (cachedImage) {
-                let contentType = 'image/jpeg';
-                if (filename.match(/\.png$/i)) contentType = 'image/png';
-                else if (filename.match(/\.gif$/i)) contentType = 'image/gif';
-                else if (filename.match(/\.webp$/i)) contentType = 'image/webp';
-
-                return new Response(cachedImage, {
-                    headers: {
-                        'Content-Type': contentType,
-                        'Cache-Control': 'public, max-age=86400',
-                        ...corsHeaders
-                    }
-                });
-            }
-
-            // Fetch new image with timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
-
-            const rentmanUrl = `${env.RENTMAN_API_BASE_URL || 'https://www.rentman.online'}/propertymedia.php?filename=${encodeURIComponent(filename)}`;
-            const rentmanResponse = await fetch(rentmanUrl, {
+            return new Response(JSON.stringify({ error: limitError.message }), {
+                status: 400,
                 headers: {
-                    'token': token,
-                    'ACCEPT': 'application/base64'
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
                 },
-                signal: controller.signal
             });
-
-            clearTimeout(timeoutId);
-
-            if (!rentmanResponse.ok) {
-                throw new Error(`Failed to fetch image: ${rentmanResponse.status}`);
-            }
-
-            const base64 = await rentmanResponse.text();
-            const { binary, contentType } = await ImageProcessor.processBase64Image(base64, filename);
-
-            // Cache the processed image
-            await env.FEATURED_PROPERTIES.put(cacheKey, binary, { expirationTtl: IMAGE_CACHE_TTL });
-
-            return new Response(binary, {
-                headers: {
-                    'Content-Type': contentType,
-                    'Cache-Control': 'public, max-age=86400',
-                    ...corsHeaders
-                }
-            });
-        } else {
-            return errorResponse('Missing propref or filename query parameter', 400);
         }
     } catch (error) {
-        return errorResponse('Internal error in property media handler: ' + error.message, 500);
+        console.error('Error toggling featured property:', error);
+        return new Response(JSON.stringify({ error: 'Failed to toggle featured property' }), {
+            status: 500,
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+        });
     }
 }
 
-export { handleGetProperties, handleGetFeaturedProperties, handleToggleFeaturedProperty, handleAdminProperties, handlePropertyMedia };
+export {
+    getProperties,
+    getFeaturedProperties,
+    addProperty,
+    updateProperty,
+    deleteProperty,
+    toggleFeaturedProperty
+};

@@ -8,6 +8,7 @@ This API proxy provides a secure interface between your Framer website and the R
 - **Production**: `https://your-worker.your-subdomain.workers.dev`
 
 ## Authentication
+**Note: Authentication has been temporarily disabled for development purposes.**
 All endpoints support CORS and are designed for cross-origin requests from Framer websites.
 
 ## Endpoints
@@ -39,7 +40,7 @@ Retrieves all properties from the Rentman API.
 ### 2. Get Featured Properties
 Retrieves only the properties marked as featured.
 
-**Endpoint:** `GET /api/properties/featured`
+**Endpoint:** `GET /api/featured`
 
 **Response:**
 ```json
@@ -60,66 +61,17 @@ Retrieves only the properties marked as featured.
 }
 ```
 
-### 3. Toggle Featured Property
-Toggles the featured status of a specific property.
-
-**Endpoint:** `POST /api/properties/featured/toggle`
-
-**Request Body:**
-```json
-{
-  "propertyId": "PROP001"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "featuredPropertyIds": ["PROP001", "PROP002"]
-  },
-  "message": "Featured status updated successfully"
-}
-```
-
-### 4. Admin Properties (with Featured Status)
-Retrieves all properties with their featured status for the admin interface.
-
-**Endpoint:** `GET /api/admin/properties`
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "propref": "PROP001",
-      "displayaddress": "123 Main Street, City",
-      "displayprice": "$500,000",
-      "photo1": "https://example.com/image1.jpg",
-      "beds": 3,
-      "baths": 2,
-      "TYPE": "House",
-      "isFeatured": true
-    }
-  ],
-  "count": 1,
-  "featuredCount": 1
-}
-```
-
-### 5. Admin Interface
+### 3. Admin Interface
 Provides a web-based admin interface for managing featured properties.
 
-**Endpoint:** `GET /admin`
+**Endpoint:** `GET /` or `GET /admin`
 
 **Response:** HTML page with property management dashboard
 
-### 6. API Information
+### 4. API Information
 Returns basic information about the API.
 
-**Endpoint:** `GET /`
+**Endpoint:** `GET /` (when accessed programmatically)
 
 **Response:**
 ```json
@@ -127,7 +79,7 @@ Returns basic information about the API.
   "message": "Rentman API Proxy",
   "endpoints": {
     "properties": "/api/properties",
-    "featured": "/api/properties/featured",
+    "featured": "/api/featured",
     "admin": "/admin"
   }
 }
@@ -163,7 +115,6 @@ Each property object contains the following fields:
 | `beds` | number | Number of bedrooms |
 | `baths` | number | Number of bathrooms |
 | `TYPE` | string | Property type (House, Apartment, etc.) |
-| `isFeatured` | boolean | Whether property is featured (admin endpoint only) |
 
 ## CORS Support
 
@@ -175,39 +126,35 @@ Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
 Access-Control-Allow-Headers: Content-Type, Authorization
 ```
 
-## Rate Limiting
-
-Currently, no rate limiting is implemented. Consider implementing rate limiting for production use.
-
 ## Usage Examples
 
 ### Framer Integration
 ```javascript
-// Fetch featured properties for Framer
-const response = await fetch('https://your-worker.workers.dev/api/properties/featured');
-const data = await response.json();
+// Fetch all properties
+const allProperties = await fetch('https://your-worker.workers.dev/api/properties');
+const allData = await allProperties.json();
 
-if (data.success) {
-  // Use data.data array in Framer
-  console.log(data.data);
+// Fetch featured properties for Framer
+const featuredResponse = await fetch('https://your-worker.workers.dev/api/featured');
+const featuredData = await featuredResponse.json();
+
+if (featuredData.success) {
+  // Use featuredData.data array in Framer
+  console.log(featuredData.data);
 }
 ```
 
-### Admin Interface
+### Testing Endpoints
 ```javascript
-// Toggle featured property
-const response = await fetch('https://your-worker.workers.dev/api/properties/featured/toggle', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
-    propertyId: 'PROP001'
-  })
-});
+// Test all properties endpoint
+fetch('http://localhost:8787/api/properties')
+  .then(response => response.json())
+  .then(data => console.log('All properties:', data));
 
-const data = await response.json();
-console.log(data.message);
+// Test featured properties endpoint  
+fetch('http://localhost:8787/api/featured')
+  .then(response => response.json())
+  .then(data => console.log('Featured properties:', data));
 ```
 
 ## Environment Variables
@@ -220,10 +167,14 @@ The following environment variables must be configured:
 - `RENTMAN_API_BASE_URL` - Rentman API base URL (default: https://api.rentman.net)
 - `MAX_FEATURED_PROPERTIES` - Maximum number of featured properties (default: 6)
 
+## Current Status
+
+**Development Mode**: Authentication is currently disabled for easier development and testing.
+
 ## Security Considerations
 
 1. **API Credentials**: Never expose Rentman API credentials in client-side code
 2. **CORS**: Configure `ALLOWED_ORIGINS` for production to restrict access
-3. **Admin Access**: Implement proper authentication for admin endpoints in production
+3. **Authentication**: Re-enable authentication for production use
 4. **Rate Limiting**: Consider implementing rate limiting for production use
 5. **HTTPS**: Always use HTTPS in production environments 

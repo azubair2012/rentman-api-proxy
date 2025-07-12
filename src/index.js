@@ -20,90 +20,117 @@
  * - Added memory-efficient data processing
  */
 
-import { handleCORS, errorResponse } from './utils/helpers';
-import { handleLogin, handleLogout, requireAuth } from './handlers/authHandlers';
-import { handleGetProperties, handleGetFeaturedProperties, handleToggleFeaturedProperty, handleAdminProperties, handlePropertyMedia } from './handlers/propertyHandlers';
-import { getLoginHTML } from './views/loginView';
+import {
+    addProperty,
+    deleteProperty,
+    getProperties,
+    updateProperty,
+    getFeaturedProperties,
+    toggleFeaturedProperty
+} from './handlers/propertyHandlers';
 import { getAdminHTML } from './views/adminView';
-import { AuthManager } from './classes/AuthManager';
-import { RentmanAPI } from './classes/RentmanAPI';
-import { FeaturedPropertiesManager } from './classes/FeaturedPropertiesManager';
-import { ImageProcessor } from './classes/ImageProcessor';
 
 // Main request handler
 export default {
     async fetch(request, env, ctx) {
-        const url = new URL(request.url);
-        const path = url.pathname;
-
-        // Handle CORS preflight requests
-        const corsResponse = handleCORS(request);
-        if (corsResponse) return corsResponse;
-
         try {
-            switch (path) {
-                case '/api/properties':
-                    return await handleGetProperties(request, env);
+            const url = new URL(request.url);
+            const path = url.pathname;
 
-                case '/api/properties/featured':
-                    return await handleGetFeaturedProperties(request, env);
+            // CORS headers
+            const corsHeaders = {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type',
+            };
 
-                case '/api/properties/featured/toggle':
-                    if (request.method !== 'POST') {
-                        return errorResponse('Method not allowed', 405);
-                    }
-                    return await handleToggleFeaturedProperty(request, env);
-
-                case '/api/admin/properties':
-                    return await handleAdminProperties(request, env);
-
-                case '/api/auth/login':
-                    if (request.method !== 'POST') {
-                        return errorResponse('Method not allowed', 405);
-                    }
-                    return await handleLogin(request, env);
-
-                case '/api/auth/logout':
-                    if (request.method !== 'POST') {
-                        return errorResponse('Method not allowed', 405);
-                    }
-                    return await handleLogout(request, env);
-
-                case '/login':
-                    return new Response(getLoginHTML(), {
-                        headers: { 'Content-Type': 'text/html' },
-                    });
-
-                case '/admin':
-                    return new Response(getAdminHTML(), {
-                        headers: { 'Content-Type': 'text/html' },
-                    });
-
-                case '/':
-                    return new Response(JSON.stringify({
-                        message: 'Rentman API Proxy',
-                        endpoints: {
-                            properties: '/api/properties',
-                            featured: '/api/properties/featured',
-                            admin: '/admin',
-                            login: '/login',
-                        },
-                    }), {
-                        headers: { 'Content-Type': 'application/json' },
-                    });
-
-                case '/api/propertymedia':
-                    return await handlePropertyMedia(request, env);
-
-                default:
-                    return errorResponse('Not Found', 404);
+            // Handle preflight CORS requests
+            if (request.method === 'OPTIONS') {
+                return new Response(null, {
+                    status: 200,
+                    headers: corsHeaders,
+                });
             }
-        } catch (error) {
-            console.error('Request error:', error);
-            return errorResponse('Internal Server Error', 500);
-        }
-    },
-};
 
-// Export classes for testing
-export { RentmanAPI, FeaturedPropertiesManager, AuthManager, ImageProcessor };
+            // Route directly to admin view for root path
+            if (path === '/' || path === '/admin') {
+                const adminHTML = getAdminHTML(env);
+                return new Response(adminHTML, {
+                    headers: {
+                        'Content-Type': 'text/html',
+                        ...corsHeaders
+                    },
+                });
+            }
+
+            // API routes for properties (no auth required)
+            if (path === '/api/properties') {
+                switch (request.method) {
+                    case 'GET':
+                        return await getProperties(request, env, corsHeaders);
+                    case 'POST':
+                        return await addProperty(request, env, corsHeaders);
+                    default:
+                        return new Response('Method not allowed', {
+                            status: 405,
+                            headers: corsHeaders
+                        });
+                }
+            }
+
+            if (path.startsWith('/api/properties/')) {
+                const propertyId = path.split('/')[3];
+
+                switch (request.method) {
+                    case 'PUT':
+                        return await updateProperty(request, env, corsHeaders, propertyId);
+                    case 'DELETE':
+                        return await deleteProperty(request, env, corsHeaders, propertyId);
+                    default:
+                        return new Response('Method not allowed', {
+                            status: 405,
+                            headers: corsHeaders
+                        });
+                }
+            }
+
+            // Featured properties endpoint
+            if (path === '/api/featured') {
+                if (request.method === 'GET') {
+                    return await getFeaturedProperties(request, env, corsHeaders);
+                }
+                return new Response('Method not allowed', {
+                    status: 405,
+                    headers: corsHeaders
+                });
+            }
+
+            // Toggle featured property endpoint
+            if (path === '/api/featured/toggle') {
+                if (request.method === 'POST') {
+                    return await toggleFeaturedProperty(request, env, corsHeaders);
+                }
+                return new Response('Method not allowed', {
+                    status: 405,
+                    headers: corsHeaders
+                });
+            }
+
+            // Default 404 for unknown routes
+            return new Response('Not Found', {
+                status: 404,
+                headers: corsHeaders
+            });
+
+        } catch (error) {
+            console.error('Error in fetch handler:', error);
+            return new Response('Internal Server Error', {
+                status: 500,
+                headers: {
+                    'Access-Control-Allow-Origin': '*',
+                    'Content-Type': 'text/plain',
+                },
+            });
+        }
+    }
+};
