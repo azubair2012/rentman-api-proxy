@@ -52,6 +52,17 @@ export default {
                 });
             }
 
+            // ✅ Handle favicon and DevTools requests to prevent gzip errors
+            if (path === '/favicon.ico' || path.startsWith('/.well-known/')) {
+                return new Response(null, {
+                    status: 404,
+                    headers: {
+                        'Content-Type': 'text/plain',
+                        ...corsHeaders
+                    }
+                });
+            }
+
             // Route directly to admin view for root path
             if (path === '/' || path === '/admin') {
                 const adminHTML = getAdminHTML(env);

@@ -1,0 +1,28 @@
+
+> rentman-api-proxy@0.0.0 dev
+> wrangler dev
+
+
+ ⛅️ wrangler 4.27.0
+───────────────────
+Using vars defined in .dev.vars
+Your Worker has access to the following bindings:
+Binding                                                                       Resource                  Mode
+env.FEATURED_PROPERTIES (FEATURED_PROPERTIES)                                 KV Namespace              local
+env.RENTMAN_API_BASE_URL ("https://www.rentman.online")                       Environment Variable      local
+env.MAX_FEATURED_PROPERTIES ("7")                                             Environment Variable      local
+env.CLERK_PUBLISHABLE_KEY ("(hidden)")                                        Environment Variable      local
+env.RENTMAN_API_TOKEN ("LRnFpm0C5d81s1S1PuCNfQuVj3wSGbWgd%2BZ...")            Environment Variable      local
+env.RENTMAN_API_USERNAME ("(hidden)")                                         Environment Variable      local
+env.RENTMAN_API_PASSWORD ("(hidden)")                                         Environment Variable      local
+env.ADMIN_USERNAME ("(hidden)")                                               Environment Variable      local
+env.ADMIN_PASSWORD ("(hidden)")                                               Environment Variable      local
+env.SESSION_SECRET ("(hidden)")                                               Environment Variable      local
+env.ALLOWED_ORIGINS ("(hidden)")                                              Environment Variable      local
+env.CLERK_SECRET_KEY ("(hidden)")                                             Environment Variable      local
+env.CLERK_DOMAIN ("(hidden)")                                                 Environment Variable      local
+
+⎔ Starting local server...
+[wrangler:info] Ready on http://localhost:8787
+[wrangler:info] GET /api/performance/stats 200 OK (11ms)
+[wrangler:info] GET / 200 OK (5ms)
