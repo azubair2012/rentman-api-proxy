@@ -1,5 +1,5 @@
 // Featured Properties Manager
-import { CACHE_TTL } from '../utils/helpers';
+import { CACHE_TTL, FEATURED_PROPERTIES_TTL } from '../utils/helpers';
 
 class FeaturedPropertiesManager {
     constructor(kv, env) {
@@ -10,8 +10,27 @@ class FeaturedPropertiesManager {
 
     async getFeaturedPropertyIds() {
         try {
+            // ✅ PHASE 2: Add caching with smart TTL for featured property IDs
+            const cacheKey = 'featured_properties_cache';
+            const cached = await this.kv.get(cacheKey, 'json');
+            if (cached) {
+                console.log('Using cached featured property IDs');
+                return cached;
+            }
+
+            // Get from main storage
             const featured = await this.kv.get('featured_properties', 'json');
-            return featured || [];
+            const featuredIds = featured || [];
+
+            // Cache with longer TTL since featured properties change less frequently
+            if (featuredIds.length > 0) {
+                await this.kv.put(cacheKey, JSON.stringify(featuredIds), {
+                    expirationTtl: FEATURED_PROPERTIES_TTL
+                });
+                console.log(`Cached ${featuredIds.length} featured property IDs for 24 hours`);
+            }
+
+            return featuredIds;
         } catch (error) {
             console.error('Error getting featured properties:', error);
             return [];
@@ -21,6 +40,9 @@ class FeaturedPropertiesManager {
     async setFeaturedPropertyIds(propertyIds) {
         try {
             await this.kv.put('featured_properties', JSON.stringify(propertyIds));
+            
+            // ✅ PHASE 2: Clear featured properties cache when IDs change
+            await this.kv.delete('featured_properties_cache');
             
             // ✅ REPLACE: Selective cache update instead of deletion
             const success = await this.updatePropertiesCache(propertyIds);

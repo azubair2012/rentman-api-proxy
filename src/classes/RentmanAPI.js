@@ -1,5 +1,5 @@
 // Optimized Rentman API client with caching
-import { CACHE_TTL, IMAGE_CACHE_TTL, PROPERTY_IMAGE_PREFIX } from '../utils/helpers';
+import { CACHE_TTL, IMAGE_CACHE_TTL, PROPERTY_IMAGE_PREFIX, MEDIA_LIST_TTL } from '../utils/helpers';
 
 class RentmanAPI {
     constructor(env) {
@@ -46,17 +46,40 @@ class RentmanAPI {
     // ✅ NEW: Separate method for actual fetching
     async performActualFetch(requestKey) {
         try {
+            // ✅ PHASE 2: Get stored ETag for conditional requests
+            const etagKey = `etag_${requestKey}`;
+            const storedETag = await this.kv.get(etagKey);
+            
             // Fetch with timeout (existing logic)
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+            const headers = { 'Accept': 'application/json' };
+            
+            // ✅ PHASE 2: Add If-None-Match header for conditional requests
+            if (storedETag) {
+                headers['If-None-Match'] = storedETag;
+                console.log(`Using conditional request with ETag: ${storedETag}`);
+            }
+
             const url = `${this.baseUrl}/propertyadvertising.php?token=${this.token}`;
             const response = await fetch(url, {
-                headers: { 'Accept': 'application/json' },
+                headers,
                 signal: controller.signal
             });
 
             clearTimeout(timeoutId);
+
+            // ✅ PHASE 2: Handle 304 Not Modified responses
+            if (response.status === 304) {
+                console.log('Content not modified, using existing cache');
+                const cacheKey = 'properties_cache';
+                const cached = await this.kv.get(cacheKey, 'json');
+                if (cached) {
+                    return await this.enhancePropertiesWithImages(cached);
+                }
+                // If no cache exists, fall through to error handling
+            }
 
             if (!response.ok) {
                 throw new Error(`Rentman API error: ${response.status}`);
@@ -64,6 +87,14 @@ class RentmanAPI {
 
             const data = await response.json();
             const properties = data || [];
+
+            // ✅ PHASE 2: Store ETag for future conditional requests
+            const responseETag = response.headers.get('etag');
+            if (responseETag) {
+                const etagKey = `etag_${requestKey}`;
+                await this.kv.put(etagKey, responseETag, { expirationTtl: CACHE_TTL * 2 }); // Store ETag longer than cache
+                console.log(`Stored ETag for future conditional requests: ${responseETag}`);
+            }
 
             // ✅ NEW: Use separate caching strategy
             await this.cachePropertiesAndImages(properties);
@@ -95,8 +126,8 @@ class RentmanAPI {
 
             const mediaList = await response.json();
 
-            // Cache the media list
-            await this.kv.put(cacheKey, JSON.stringify(mediaList), { expirationTtl: CACHE_TTL });
+            // ✅ PHASE 2: Cache media list with smart TTL (30 minutes)
+            await this.kv.put(cacheKey, JSON.stringify(mediaList), { expirationTtl: MEDIA_LIST_TTL });
 
             return mediaList;
         } catch (error) {
@@ -169,6 +200,51 @@ class RentmanAPI {
             console.error('Error enhancing properties with images:', error);
             // ✅ FALLBACK: Return properties without images
             return properties;
+        }
+    }
+
+    // ✅ PHASE 2: Cache warming functionality
+    async warmCache() {
+        try {
+            console.log('Starting cache warm-up...');
+            
+            // Warm properties cache
+            await this.fetchProperties();
+            
+            // Warm featured properties cache
+            const FeaturedPropertiesManager = (await import('./FeaturedPropertiesManager.js')).FeaturedPropertiesManager;
+            const featuredManager = new FeaturedPropertiesManager(this.kv);
+            await featuredManager.getFeaturedPropertyIds();
+            
+            console.log('Cache warm-up completed successfully');
+            return { success: true, message: 'Cache warmed successfully' };
+        } catch (error) {
+            console.error('Cache warm-up failed:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // ✅ PHASE 2: Background cache refresh
+    async scheduleBackgroundRefresh() {
+        try {
+            // Check if cache is close to expiration (within 1 minute)
+            const cacheMetadata = await this.kv.getWithMetadata('properties_cache');
+            if (cacheMetadata.metadata) {
+                const expirationTime = cacheMetadata.metadata.expiration * 1000; // Convert to milliseconds
+                const now = Date.now();
+                const timeToExpiration = expirationTime - now;
+                
+                // If cache expires within 60 seconds, refresh it
+                if (timeToExpiration < 60000 && timeToExpiration > 0) {
+                    console.log('Cache expiring soon, triggering background refresh...');
+                    // Don't await - let it run in background
+                    this.performActualFetch('properties').catch(error => 
+                        console.error('Background cache refresh failed:', error)
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Background refresh check failed:', error);
         }
     }
 }

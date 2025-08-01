@@ -165,6 +165,72 @@ function getAdminHTML(env = {}) {
             margin-bottom: 20px;
             display: none;
         }
+        
+        /* ✅ PHASE 3: Enhanced Loading and Progress Indicators */
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .toggle.loading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        
+        .toggle.loading::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 12px;
+            height: 12px;
+            border: 2px solid #ffffff;
+            border-top: 2px solid transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #f0f0f0;
+            border-radius: 2px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .retry-button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-left: 10px;
+        }
+        
+        .retry-button:hover {
+            background: #5a67d8;
+        }
     </style>
 </head>
 <body>
@@ -186,11 +252,32 @@ function getAdminHTML(env = {}) {
     <div class="main-content">
         <div class="search-bar">
             <input type="text" id="searchInput" class="search-input" placeholder="Search properties...">
+            
+            <!-- ✅ PHASE 3: Performance monitoring toggle -->
+            <button id="perfToggle" onclick="togglePerformanceStats()" 
+                    style="float: right; background: #667eea; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px;">
+                📊 Performance Stats
+            </button>
+        </div>
+        
+        <!-- ✅ PHASE 3: Performance Dashboard -->
+        <div id="performanceStats" class="performance-stats" style="display: none; background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            <h3 style="margin: 0 0 15px 0; color: #333;">Performance Dashboard</h3>
+            <div id="perfContent">Loading performance stats...</div>
         </div>
         
         <div id="error" class="error"></div>
         <div id="success" class="success"></div>
-        <div id="loading" class="loading">Loading properties...</div>
+        
+        <!-- ✅ PHASE 3: Enhanced loading with progress bar -->
+        <div id="progressContainer" class="progress-bar" style="display: none;">
+            <div id="progressBar" class="progress-bar-fill"></div>
+        </div>
+        
+        <div id="loading" class="loading">
+            <div class="loading-spinner"></div>
+            <span id="loadingText">Loading properties...</span>
+        </div>
         <div id="propertyGrid" class="property-grid" style="display: none;"></div>
     </div>
 
@@ -517,10 +604,29 @@ function getAdminHTML(env = {}) {
             \`).join('');
         }
 
+        // ✅ PHASE 3: Optimistic UI Updates - Instant feedback with fallback
         async function toggleFeatured(propertyId) {
             try {
                 console.log('Toggling featured status for property:', propertyId);
                 
+                        // ✅ PHASE 3: Show loading state on toggle
+                const toggleElement = document.querySelector(\`[onclick="toggleFeatured('\${propertyId}')"]\`);
+                if (toggleElement) {
+                    toggleElement.classList.add('loading');
+                }
+
+                // ✅ PHASE 3: Update UI immediately for instant feedback
+                const success = updateUIOptimistically(propertyId);
+                if (!success) {
+                    showError('Unable to find property for optimistic update');
+                    if (toggleElement) toggleElement.classList.remove('loading');
+                    return;
+                }
+                
+                // Show optimistic success message
+                showSuccess('Updating featured status...', false); // Don't auto-hide
+                
+                // Make API call in background
                 const response = await fetch('/api/featured/toggle', {
                     method: 'POST',
                     headers: { 
@@ -531,37 +637,278 @@ function getAdminHTML(env = {}) {
                 
                 const data = await response.json();
                 if (data.success) {
-                    // Clear cache since featured properties changed
-                    clearCache();
+                    // ✅ SUCCESS: Keep optimistic changes, just update success message
                     showSuccess('Featured status updated successfully');
-                    await loadProperties(true); // Force refresh
+                    console.log('Optimistic update confirmed by server');
+                    
+                    // Update local cache data to match server state
+                    updateLocalCache(propertyId, data.data.featuredPropertyIds);
+                    
+                    // ✅ PHASE 3: Remove loading state on success
+                    if (toggleElement) toggleElement.classList.remove('loading');
                 } else {
                     throw new Error(data.error || 'Failed to toggle featured status');
                 }
             } catch (error) {
                 console.error('Toggle error:', error);
+                
+                // ✅ FALLBACK: Revert optimistic changes and show error
+                console.log('Optimistic update failed, reverting changes...');
+                revertOptimisticUpdate(propertyId);
                 showError('Failed to toggle featured status: ' + error.message);
+                
+                // ✅ PHASE 3: Remove loading state on error
+                if (toggleElement) toggleElement.classList.remove('loading');
+                
+                // Optional: Full reload as ultimate fallback (commented out for better UX)
+                // console.log('Performing full reload as fallback...');
+                // window.location.reload();
             }
         }
 
-        function showError(message) {
+        // ✅ PHASE 3: Update UI immediately without waiting for server
+        function updateUIOptimistically(propertyId) {
+            const toggleElement = document.querySelector(\`[onclick="toggleFeatured('\${propertyId}')"]\`);
+            if (!toggleElement) {
+                console.error('Toggle element not found for property:', propertyId);
+                return false;
+            }
+
+            // Toggle the visual state immediately
+            const wasActive = toggleElement.classList.contains('active');
+            if (wasActive) {
+                toggleElement.classList.remove('active');
+                console.log(\`Optimistically removed featured status for \${propertyId}\`);
+            } else {
+                toggleElement.classList.add('active');
+                console.log(\`Optimistically added featured status for \${propertyId}\`);
+            }
+
+            // Store the original state for potential revert
+            toggleElement.dataset.originalState = wasActive ? 'active' : 'inactive';
+            toggleElement.dataset.optimisticUpdate = 'true';
+            
+            return true;
+        }
+
+        // ✅ PHASE 3: Revert optimistic changes if server update fails
+        function revertOptimisticUpdate(propertyId) {
+            const toggleElement = document.querySelector(\`[onclick="toggleFeatured('\${propertyId}')"]\`);
+            if (!toggleElement || !toggleElement.dataset.optimisticUpdate) {
+                return;
+            }
+
+            // Revert to original state
+            const originalState = toggleElement.dataset.originalState;
+            if (originalState === 'active') {
+                toggleElement.classList.add('active');
+            } else {
+                toggleElement.classList.remove('active');
+            }
+
+            // Clean up tracking attributes
+            delete toggleElement.dataset.originalState;
+            delete toggleElement.dataset.optimisticUpdate;
+            
+            console.log(\`Reverted optimistic update for \${propertyId}\`);
+        }
+
+        // ✅ PHASE 3: Update local cache to match server state
+        function updateLocalCache(propertyId, serverFeaturedIds) {
+            // Update the properties data to match server state
+            if (window.cachedProperties) {
+                const property = window.cachedProperties.find(p => p.propref === propertyId);
+                if (property) {
+                    property.isFeatured = serverFeaturedIds.includes(String(propertyId));
+                    console.log(\`Updated local cache for \${propertyId}: featured = \${property.isFeatured}\`);
+                }
+            }
+        }
+
+        // ✅ PHASE 3: Enhanced error handling with retry capability
+        function showError(message, showRetry = false, retryCallback = null) {
             const errorDiv = document.getElementById('error');
-            errorDiv.textContent = message;
+            
+            if (showRetry && retryCallback) {
+                errorDiv.innerHTML = \`
+                    \${message}
+                    <button class="retry-button" onclick="(\${retryCallback})()">Retry</button>
+                \`;
+            } else {
+                errorDiv.textContent = message;
+            }
+            
             errorDiv.style.display = 'block';
             setTimeout(() => {
                 errorDiv.style.display = 'none';
             }, 5000);
         }
 
-        function showSuccess(message) {
+        // ✅ PHASE 3: Progress tracking functions
+        function showProgress(percentage = 0, message = 'Loading...') {
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            const loadingText = document.getElementById('loadingText');
+            
+            progressContainer.style.display = 'block';
+            progressBar.style.width = percentage + '%';
+            loadingText.textContent = message;
+        }
+
+        function hideProgress() {
+            const progressContainer = document.getElementById('progressContainer');
+            progressContainer.style.display = 'none';
+        }
+
+        // ✅ PHASE 3: Enhanced loading state management
+        function setLoadingState(isLoading, message = 'Loading...') {
+            const loadingDiv = document.getElementById('loading');
+            const propertyGrid = document.getElementById('propertyGrid');
+            const loadingText = document.getElementById('loadingText');
+            
+            if (isLoading) {
+                loadingDiv.style.display = 'block';
+                propertyGrid.style.display = 'none';
+                loadingText.textContent = message;
+                showProgress(0, message);
+            } else {
+                loadingDiv.style.display = 'none';
+                propertyGrid.style.display = 'grid';
+                hideProgress();
+            }
+        }
+
+        // ✅ PHASE 3: Enhanced success messaging with optional auto-hide
+        function showSuccess(message, autoHide = true) {
             const successDiv = document.getElementById('success');
             successDiv.textContent = message;
             successDiv.style.display = 'block';
-            setTimeout(() => {
-                successDiv.style.display = 'none';
-            }, 3000);
+            
+            // Clear any existing timeout
+            if (successDiv.hideTimeout) {
+                clearTimeout(successDiv.hideTimeout);
+                delete successDiv.hideTimeout;
+            }
+            
+            // Only auto-hide if requested
+            if (autoHide) {
+                successDiv.hideTimeout = setTimeout(() => {
+                    successDiv.style.display = 'none';
+                    delete successDiv.hideTimeout;
+                }, 3000);
+            }
         }
 
+        // ✅ PHASE 3: Performance monitoring functions
+        let performanceStatsVisible = false;
+        
+        async function togglePerformanceStats() {
+            const statsDiv = document.getElementById('performanceStats');
+            const toggle = document.getElementById('perfToggle');
+            
+            performanceStatsVisible = !performanceStatsVisible;
+            
+            if (performanceStatsVisible) {
+                statsDiv.style.display = 'block';
+                toggle.textContent = '📊 Hide Stats';
+                await loadPerformanceStats();
+            } else {
+                statsDiv.style.display = 'none';
+                toggle.textContent = '📊 Performance Stats';
+            }
+        }
+        
+        async function loadPerformanceStats() {
+            const perfContent = document.getElementById('perfContent');
+            perfContent.innerHTML = '<div class="loading-spinner"></div> Loading performance stats...';
+            
+            try {
+                const response = await fetch('/api/performance/stats');
+                const stats = await response.json();
+                
+                if (response.ok) {
+                    perfContent.innerHTML = \`
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px;">
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                                <h4 style="margin: 0 0 10px 0; color: #667eea;">Cache Status</h4>
+                                <div style="font-size: 14px;">
+                                    <div>Properties: <span style="color: \${stats.cacheStatus.propertiesCache === 'HIT' ? '#28a745' : '#dc3545'};">\${stats.cacheStatus.propertiesCache}</span></div>
+                                    <div>Featured: <span style="color: \${stats.cacheStatus.featuredCache === 'HIT' ? '#28a745' : '#dc3545'};">\${stats.cacheStatus.featuredCache}</span></div>
+                                    <div>Images: <span style="color: #ffc107;">\${stats.cacheStatus.imageCache}</span></div>
+                                </div>
+                            </div>
+                            
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                                <h4 style="margin: 0 0 10px 0; color: #667eea;">Active Optimizations</h4>
+                                <div style="font-size: 14px;">
+                                    <div>✅ Request Deduplication</div>
+                                    <div>✅ Selective Cache Invalidation</div>
+                                    <div>✅ Separate Image Caching</div>
+                                    <div>✅ Optimized Filtering</div>
+                                    <div>✅ ETag Validation</div>
+                                </div>
+                            </div>
+                            
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                                <h4 style="margin: 0 0 10px 0; color: #667eea;">Expected Improvements</h4>
+                                <div style="font-size: 14px;">
+                                    <div>Response Time: <strong>\${stats.expectedImprovements.responseTime}</strong></div>
+                                    <div>Cache Hit Rate: <strong>\${stats.expectedImprovements.cacheHitRate}</strong></div>
+                                    <div>Memory Usage: <strong>\${stats.expectedImprovements.memoryUsage}</strong></div>
+                                    <div>API Calls: <strong>\${stats.expectedImprovements.apiCalls}</strong></div>
+                                </div>
+                            </div>
+                            
+                            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px;">
+                                <h4 style="margin: 0 0 10px 0; color: #667eea;">System Info</h4>
+                                <div style="font-size: 14px;">
+                                    <div>Version: <strong>\${stats.version}</strong></div>
+                                    <div>Last Update: <strong>\${new Date(stats.timestamp).toLocaleTimeString()}</strong></div>
+                                    <div style="margin-top: 10px;">
+                                        <button onclick="warmCache()" style="background: #28a745; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 12px;">Warm Cache</button>
+                                        <button onclick="loadPerformanceStats()" style="background: #17a2b8; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 12px; margin-left: 5px;">Refresh</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    \`;
+                } else {
+                    perfContent.innerHTML = '<div style="color: #dc3545;">Failed to load performance stats</div>';
+                }
+            } catch (error) {
+                console.error('Performance stats error:', error);
+                perfContent.innerHTML = '<div style="color: #dc3545;">Error loading performance stats</div>';
+            }
+        }
+        
+        async function warmCache() {
+            const perfContent = document.getElementById('perfContent');
+            const originalContent = perfContent.innerHTML;
+            
+            perfContent.innerHTML = '<div class="loading-spinner"></div> Warming cache...';
+            
+            try {
+                const response = await fetch('/api/cache/warm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showSuccess('Cache warmed successfully');
+                    await loadPerformanceStats(); // Refresh stats
+                } else {
+                    showError('Failed to warm cache: ' + (result.error || 'Unknown error'));
+                    perfContent.innerHTML = originalContent;
+                }
+            } catch (error) {
+                console.error('Cache warming error:', error);
+                showError('Failed to warm cache');
+                perfContent.innerHTML = originalContent;
+            }
+        }
+        
         document.getElementById('searchInput').addEventListener('input', (e) => {
             const searchTerm = e.target.value.toLowerCase();
             const filtered = properties.filter(property => 
