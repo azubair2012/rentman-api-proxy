@@ -65,4 +65,4 @@ This is a **Cloudflare Workers-based API proxy** that sits between Framer websit
 - We will follow the TDD principles. any features implemented needs to be tested before.
 
 ## Workflow Guidelines
-- Everytime user types `cc claude` should commit all the changes with proper detailed commit message and push it
+- Everytime user types `cc` should commit all the changes with proper detailed commit message and push it
