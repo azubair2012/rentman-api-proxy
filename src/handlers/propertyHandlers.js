@@ -63,14 +63,37 @@ async function getFeaturedProperties(request, env, corsHeaders) {
             featuredManager.getFeaturedPropertyIds(),
         ]);
 
-        const featuredProperties = allProperties.filter(property =>
-            featuredIds.includes(String(property.propref))
-        );
+        console.log(`Filtering ${featuredIds.length} featured properties from ${allProperties.length} total properties`);
+
+        // ✅ NEW: Optimized filtering with Set lookup and early termination
+        const featuredIdsSet = new Set(featuredIds.map(id => String(id)));
+        const featuredProperties = [];
+        
+        // Early termination optimization
+        for (const property of allProperties) {
+            if (featuredIdsSet.has(String(property.propref))) {
+                featuredProperties.push(property);
+                
+                // ✅ OPTIMIZATION: Stop when we've found all featured properties
+                if (featuredProperties.length === featuredIds.length) {
+                    console.log(`Found all ${featuredIds.length} featured properties, stopping search early`);
+                    break;
+                }
+            }
+        }
+
+        console.log(`Returning ${featuredProperties.length} featured properties`);
 
         return new Response(JSON.stringify({
             success: true,
             data: featuredProperties,
             count: featuredProperties.length,
+            // ✅ NEW: Add performance metadata
+            performance: {
+                totalProperties: allProperties.length,
+                featuredFound: featuredProperties.length,
+                earlyTermination: featuredProperties.length === featuredIds.length
+            }
         }), {
             headers: {
                 'Content-Type': 'application/json',

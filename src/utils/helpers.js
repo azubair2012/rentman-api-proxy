@@ -9,6 +9,7 @@ const corsHeaders = {
 // Cache configuration
 const CACHE_TTL = 300; // 5 minutes
 const IMAGE_CACHE_TTL = 3600; // 1 hour for images
+const PROPERTY_IMAGE_PREFIX = 'prop_img_'; // ✅ ADD: Image cache key prefix
 
 // Helper function to handle CORS preflight requests
 function handleCORS(request) {
@@ -33,4 +34,4 @@ function errorResponse(message, status = 400) {
     return jsonResponse({ error: message }, status);
 }
 
-export { corsHeaders, CACHE_TTL, IMAGE_CACHE_TTL, handleCORS, jsonResponse, errorResponse };
+export { corsHeaders, CACHE_TTL, IMAGE_CACHE_TTL, PROPERTY_IMAGE_PREFIX, handleCORS, jsonResponse, errorResponse };
