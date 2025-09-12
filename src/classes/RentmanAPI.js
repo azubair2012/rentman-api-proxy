@@ -31,7 +31,8 @@ class RentmanAPI {
             const response = await fetch(url, {
                 headers: { 
                     'Accept': 'application/json',
-                    'Accept-Encoding': 'identity', // Disable gzip compression
+                    'Accept-Encoding': 'identity',
+                    'Cache-Control': 'no-cache',
                     'User-Agent': 'Rentman-API-Proxy/1.0'
                 },
                 signal: controller.signal
@@ -43,7 +44,15 @@ class RentmanAPI {
                 throw new Error(`Rentman API error: ${response.status} ${response.statusText}`);
             }
 
-            const properties = await response.json();
+            let properties;
+            try {
+                // Force text response to avoid gzip issues
+                const textData = await response.text();
+                properties = JSON.parse(textData);
+            } catch (parseError) {
+                console.error('JSON parse error:', parseError);
+                throw new Error(`Failed to parse JSON response: ${parseError.message}`);
+            }
             
             // Cache the data
             await this.kv.put(cacheKey, JSON.stringify(properties), {
@@ -82,7 +91,8 @@ class RentmanAPI {
             const response = await fetch(url, {
                 headers: {
                     ...headers,
-                    'Accept-Encoding': 'identity', // Disable gzip compression
+                    'Accept-Encoding': 'identity',
+                    'Cache-Control': 'no-cache',
                     'User-Agent': 'Rentman-API-Proxy/1.0'
                 },
                 signal: controller.signal
@@ -106,8 +116,16 @@ class RentmanAPI {
                 throw new Error(`Rentman API error: ${response.status}`);
             }
 
-            const data = await response.json();
-            const properties = data || [];
+            let data, properties;
+            try {
+                // Force text response to avoid gzip issues
+                const textData = await response.text();
+                data = JSON.parse(textData);
+                properties = data || [];
+            } catch (parseError) {
+                console.error('JSON parse error in performActualFetch:', parseError);
+                throw new Error(`Failed to parse JSON response: ${parseError.message}`);
+            }
 
             // ✅ PHASE 2: Store ETag for future conditional requests
             const responseETag = response.headers.get('etag');
@@ -147,7 +165,8 @@ class RentmanAPI {
                 headers: { 
                     'token': this.token,
                     'Accept': 'application/json',
-                    'Accept-Encoding': 'identity', // Disable gzip compression
+                    'Accept-Encoding': 'identity',
+                    'Cache-Control': 'no-cache',
                     'User-Agent': 'Rentman-API-Proxy/1.0'
                 },
                 signal: controller.signal
@@ -159,7 +178,15 @@ class RentmanAPI {
                 throw new Error(`Media API error: ${response.status} ${response.statusText}`);
             }
 
-            const mediaList = await response.json();
+            let mediaList;
+            try {
+                // Force text response to avoid gzip issues
+                const textData = await response.text();
+                mediaList = JSON.parse(textData);
+            } catch (parseError) {
+                console.error('JSON parse error in fetchPropertyMedia:', parseError);
+                throw new Error(`Failed to parse media list JSON: ${parseError.message}`);
+            }
             console.log(`Fetched ${mediaList.length} media items for property ${propref}`);
 
             // ✅ PHASE 2: Cache media list with smart TTL (30 minutes)
