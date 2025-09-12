@@ -24,16 +24,76 @@ function errorResponse(message, status = 400) {
     });
 }
 
+// Helper function to transform property data with image URLs
+function transformPropertyWithImageUrls(property, baseUrl) {
+    const transformed = { ...property };
+    
+    // Generate image URLs for available photos
+    const images = {};
+    const imageMetadata = [];
+    
+    for (let i = 1; i <= 9; i++) {
+        const photoField = `photo${i}binary`;
+        if (property[photoField]) {
+            const photoUrls = {
+                thumbnail: `${baseUrl}/api/images/${property.propref}/thumbnail?photo=${i}`,
+                medium: `${baseUrl}/api/images/${property.propref}/medium?photo=${i}`,
+                full: `${baseUrl}/api/images/${property.propref}/full?photo=${i}`,
+                placeholder: `${baseUrl}/api/images/${property.propref}/placeholder?photo=${i}`,
+                // Auto-format URLs that negotiate best format
+                auto: {
+                    thumbnail: `${baseUrl}/api/images/${property.propref}/thumbnail/auto?photo=${i}`,
+                    medium: `${baseUrl}/api/images/${property.propref}/medium/auto?photo=${i}`,
+                    full: `${baseUrl}/api/images/${property.propref}/full/auto?photo=${i}`
+                }
+            };
+            
+            images[`photo${i}`] = photoUrls;
+            imageMetadata.push({
+                index: i,
+                field: photoField,
+                urls: photoUrls
+            });
+            
+            // Remove base64 data to reduce payload size
+            delete transformed[photoField];
+        }
+    }
+    
+    // Add image URLs and metadata
+    transformed.images = images;
+    transformed.imageCount = imageMetadata.length;
+    transformed.imageMetadata = imageMetadata;
+    
+    return transformed;
+}
+
 // Get all properties
 async function getProperties(request, env, corsHeaders) {
     try {
+        const url = new URL(request.url);
+        const baseUrl = `${url.protocol}//${url.host}`;
+        const useImageUrls = url.searchParams.get('imageUrls') === 'true';
+        
         const rentman = new RentmanAPI(env);
         const properties = await rentman.fetchProperties();
 
+        // Transform properties to use image URLs if requested
+        let responseData = properties;
+        if (useImageUrls) {
+            responseData = properties.map(property => 
+                transformPropertyWithImageUrls(property, baseUrl)
+            );
+        }
+
         return new Response(JSON.stringify({
             success: true,
-            data: properties,
-            count: properties.length,
+            data: responseData,
+            count: responseData.length,
+            imageUrls: useImageUrls,
+            optimizationNote: useImageUrls ? 
+                'Images served as URLs - use /api/images/{propref}/{variant} endpoints for optimized delivery' : 
+                'Images included as base64 data - add ?imageUrls=true for optimized URL-based delivery'
         }), {
             headers: {
                 'Content-Type': 'application/json',
@@ -55,6 +115,10 @@ async function getProperties(request, env, corsHeaders) {
 // Get featured properties
 async function getFeaturedProperties(request, env, corsHeaders) {
     try {
+        const url = new URL(request.url);
+        const baseUrl = `${url.protocol}//${url.host}`;
+        const useImageUrls = url.searchParams.get('imageUrls') === 'true';
+        
         const rentman = new RentmanAPI(env);
         const featuredManager = new FeaturedPropertiesManager(env.FEATURED_PROPERTIES, env);
 
@@ -67,7 +131,7 @@ async function getFeaturedProperties(request, env, corsHeaders) {
 
         // ✅ NEW: Optimized filtering with Set lookup and early termination
         const featuredIdsSet = new Set(featuredIds.map(id => String(id)));
-        const featuredProperties = [];
+        let featuredProperties = [];
         
         // Early termination optimization
         for (const property of allProperties) {
@@ -82,12 +146,23 @@ async function getFeaturedProperties(request, env, corsHeaders) {
             }
         }
 
+        // Transform properties to use image URLs if requested
+        if (useImageUrls) {
+            featuredProperties = featuredProperties.map(property => 
+                transformPropertyWithImageUrls(property, baseUrl)
+            );
+        }
+
         console.log(`Returning ${featuredProperties.length} featured properties`);
 
         return new Response(JSON.stringify({
             success: true,
             data: featuredProperties,
             count: featuredProperties.length,
+            imageUrls: useImageUrls,
+            optimizationNote: useImageUrls ? 
+                'Images served as URLs - use /api/images/{propref}/{variant} endpoints for optimized delivery' : 
+                'Images included as base64 data - add ?imageUrls=true for optimized URL-based delivery',
             // ✅ NEW: Add performance metadata
             performance: {
                 totalProperties: allProperties.length,

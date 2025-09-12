@@ -30,6 +30,7 @@ import {
     getFeaturedProperties,
     toggleFeaturedProperty
 } from './handlers/propertyHandlers';
+import { handleImageRequest, handleImageInfo } from './handlers/imageHandlers';
 import { getAdminHTML } from './views/adminView';
 
 // ✅ PERFORMANCE: Top-level imports to eliminate per-request dynamic imports
@@ -381,6 +382,26 @@ export default {
                         });
                     }
                 }
+                return new Response('Method not allowed', {
+                    status: 405,
+                    headers: corsHeaders
+                });
+            }
+
+            // Image optimization endpoints - Phase 1 implementation
+            if (path.startsWith('/api/images/')) {
+                const pathSegments = url.pathname.split('/').filter(Boolean);
+                
+                // Handle image info endpoint: /api/images/info/{propref}
+                if (pathSegments[2] === 'info' && request.method === 'GET') {
+                    return await handleImageInfo(request, env);
+                }
+                
+                // Handle individual image requests: /api/images/{propref}/{variant?}/{format?}
+                if (request.method === 'GET') {
+                    return await handleImageRequest(request, env, ctx);
+                }
+                
                 return new Response('Method not allowed', {
                     status: 405,
                     headers: corsHeaders
