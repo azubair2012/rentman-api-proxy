@@ -39,6 +39,59 @@ function errorResponse(message, status = 400) {
     return jsonResponse({ error: message }, status);
 }
 
+// ✅ NEW: Image optimization utilities
+function compressBase64Image(base64Data, quality = 0.8) {
+    try {
+        // For now, return as-is (could implement Canvas-based compression in the future)
+        return base64Data;
+    } catch (error) {
+        console.warn('Image compression failed:', error);
+        return base64Data;
+    }
+}
+
+function isValidBase64Image(base64Data) {
+    if (!base64Data || typeof base64Data !== 'string') return false;
+    
+    // Check if it's valid base64 and reasonable size
+    try {
+        const withoutHeader = base64Data.replace(/^data:image\/[a-z]+;base64,/, '');
+        
+        // Basic validation
+        if (withoutHeader.length < 100) return false; // Too small
+        if (withoutHeader.length > 10 * 1024 * 1024) return false; // Too large (>10MB)
+        
+        // Check if valid base64
+        const decoded = atob(withoutHeader.substring(0, 100)); // Test first 100 chars
+        return decoded.length > 0;
+    } catch (error) {
+        return false;
+    }
+}
+
+function getImageMetadata(base64Data) {
+    if (!isValidBase64Image(base64Data)) {
+        return { isValid: false, size: 0, type: 'unknown' };
+    }
+    
+    try {
+        const withoutHeader = base64Data.replace(/^data:image\/([a-z]+);base64,/, '');
+        const type = base64Data.match(/^data:image\/([a-z]+);base64,/)?.[1] || 'jpeg';
+        const sizeInBytes = (withoutHeader.length * 3) / 4; // Approximate base64 size
+        
+        return {
+            isValid: true,
+            size: sizeInBytes,
+            type: type,
+            sizeFormatted: sizeInBytes > 1024 * 1024 
+                ? `${(sizeInBytes / (1024 * 1024)).toFixed(1)}MB`
+                : `${Math.round(sizeInBytes / 1024)}KB`
+        };
+    } catch (error) {
+        return { isValid: false, size: 0, type: 'unknown' };
+    }
+}
+
 export { 
     corsHeaders, 
     CACHE_TTL, 
@@ -49,5 +102,8 @@ export {
     ADMIN_VIEW_TTL,
     handleCORS, 
     jsonResponse, 
-    errorResponse 
+    errorResponse,
+    compressBase64Image,
+    isValidBase64Image,
+    getImageMetadata
 };

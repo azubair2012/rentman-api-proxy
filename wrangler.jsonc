@@ -23,9 +23,13 @@
 	],
 	"vars": {
 		"RENTMAN_API_BASE_URL": "https://www.rentman.online",
-		"MAX_FEATURED_PROPERTIES": "7",
+		"MAX_FEATURED_PROPERTIES": "10",
+		"MIN_FEATURED_PROPERTIES": "7",
 		"CLERK_PUBLISHABLE_KEY": "pk_test_your_clerk_publishable_key_here",
 		"RENTMAN_API_TOKEN": "LRnFpm0C5d81s1S1PuCNfQuVj3wSGbWgd%2BZJwrmZE1bbo8mEdr9p4t%2FZ8jMoldu0PosD3sJbNDuHO7OwDn%2FvxPwQv73AEehgp8Hjb0%2FB%2BAPYpQt%2Bcc55bA2Z2ye1VwaqDCZnmcBqpd4%3D"
+	},
+	"triggers": {
+		"crons": ["*/1 * * * *"]
 	}
 	/**
 	 * Smart Placement

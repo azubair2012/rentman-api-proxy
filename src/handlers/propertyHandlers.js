@@ -112,6 +112,69 @@ async function getFeaturedProperties(request, env, corsHeaders) {
     }
 }
 
+// Get individual property details with media
+async function getPropertyDetails(request, env, corsHeaders, propertyId) {
+    try {
+        if (!propertyId) {
+            return new Response(JSON.stringify({ error: 'Property ID is required' }), {
+                status: 400,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+            });
+        }
+
+        const rentman = new RentmanAPI(env);
+        
+        try {
+            // ✅ OPTIMIZED: Use direct property details method (includes cache fallback)
+            const propertyWithMedia = await rentman.getPropertyDetails(propertyId);
+            
+            if (!propertyWithMedia) {
+                return new Response(JSON.stringify({ error: 'Property not found' }), {
+                    status: 404,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...corsHeaders,
+                    },
+                });
+            }
+
+            return new Response(JSON.stringify({
+                success: true,
+                data: propertyWithMedia,
+            }), {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+            });
+        } catch (propertyError) {
+            // Handle specific property not found errors
+            if (propertyError.message.includes('not found in cache')) {
+                return new Response(JSON.stringify({ error: 'Property not found' }), {
+                    status: 404,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...corsHeaders,
+                    },
+                });
+            }
+            throw propertyError; // Re-throw other errors to be caught by outer catch
+        }
+    } catch (error) {
+        console.error('Error fetching property details:', error);
+        return new Response(JSON.stringify({ error: 'Failed to fetch property details' }), {
+            status: 500,
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+        });
+    }
+}
+
 // Add a new property (without auth)
 async function addProperty(request, env, corsHeaders) {
     try {
@@ -195,6 +258,84 @@ async function deleteProperty(request, env, corsHeaders, propertyId) {
     }
 }
 
+// Get property media (photos, floor plans, EPC certificates)
+async function getPropertyMedia(request, env, corsHeaders) {
+    try {
+        const url = new URL(request.url);
+        const propref = url.searchParams.get('propref');
+        const filename = url.searchParams.get('filename');
+
+        if (!propref && !filename) {
+            return new Response(JSON.stringify({ error: 'Either propref or filename parameter is required' }), {
+                status: 400,
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+            });
+        }
+
+        const rentman = new RentmanAPI(env);
+        
+        if (filename) {
+            // Single file request - not commonly used, but supported by API
+            const mediaList = await rentman.fetchPropertyMedia(propref || 'unknown');
+            const mediaItem = mediaList.find(item => item.filename === filename);
+            
+            if (!mediaItem) {
+                return new Response(JSON.stringify({ error: 'Media file not found' }), {
+                    status: 404,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...corsHeaders,
+                    },
+                });
+            }
+
+            // Check if request wants base64 only
+            const acceptHeader = request.headers.get('accept');
+            if (acceptHeader === 'application/base64') {
+                return new Response(mediaItem.base64data, {
+                    headers: {
+                        'Content-Type': 'text/plain',
+                        ...corsHeaders,
+                    },
+                });
+            }
+
+            return new Response(JSON.stringify(mediaItem), {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+            });
+        } else {
+            // All media for a property
+            const mediaList = await rentman.fetchPropertyMedia(propref);
+            
+            return new Response(JSON.stringify({
+                success: true,
+                data: mediaList,
+                count: mediaList.length,
+            }), {
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...corsHeaders,
+                },
+            });
+        }
+    } catch (error) {
+        console.error('Error fetching property media:', error);
+        return new Response(JSON.stringify({ error: 'Failed to fetch property media' }), {
+            status: 500,
+            headers: {
+                'Content-Type': 'application/json',
+                ...corsHeaders,
+            },
+        });
+    }
+}
+
 // Toggle featured property (without auth)
 async function toggleFeaturedProperty(request, env, corsHeaders) {
     try {
@@ -251,6 +392,8 @@ async function toggleFeaturedProperty(request, env, corsHeaders) {
 
 export {
     getProperties,
+    getPropertyDetails,
+    getPropertyMedia,
     getFeaturedProperties,
     addProperty,
     updateProperty,
