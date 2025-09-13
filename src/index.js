@@ -333,6 +333,33 @@ export default {
                 });
             }
 
+            // ✅ Cache clearing endpoint for testing
+            if (path === '/api/cache/clear') {
+                if (request.method === 'DELETE') {
+                    try {
+                        const url = new URL(request.url);
+                        const key = url.searchParams.get('key');
+                        if (!key) {
+                            return new Response(JSON.stringify({ error: 'Cache key required' }), {
+                                status: 400,
+                                headers: { 'Content-Type': 'application/json', ...corsHeaders }
+                            });
+                        }
+                        
+                        await env.FEATURED_PROPERTIES.delete(key);
+                        return new Response(JSON.stringify({ success: true, key }), {
+                            headers: { 'Content-Type': 'application/json', ...corsHeaders }
+                        });
+                    } catch (error) {
+                        return new Response(JSON.stringify({ error: 'Cache clear failed' }), {
+                            status: 500,
+                            headers: { 'Content-Type': 'application/json', ...corsHeaders }
+                        });
+                    }
+                }
+                return new Response('Method not allowed', { status: 405, headers: corsHeaders });
+            }
+
             // ✅ NEW: Backfill status endpoint (with fast path)
             if (path === '/api/featured/backfill/status') {
                 if (request.method === 'GET') {

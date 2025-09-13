@@ -55,9 +55,10 @@ async function handleImageRequest(request, env, ctx) {
             });
         }
 
-        // Get property data to extract image
+        // Get property data from main properties list (same as API response)
         const rentmanAPI = new RentmanAPI(env);
-        const propertyData = await rentmanAPI.getPropertyDetails(propref);
+        const allProperties = await rentmanAPI.fetchProperties();
+        const propertyData = allProperties.find(p => p.propref == propref);
         
         if (!propertyData) {
             return new Response('Property not found', { status: 404 });
@@ -124,7 +125,9 @@ async function handleImageRequest(request, env, ctx) {
                 'X-Original-Size': processedImage.originalSize.toString(),
                 'X-Compressed-Size': processedImage.compressedSize.toString(),
                 'X-Variant': variant,
-                'X-Format': format
+                'X-Format': processedImage.format, // Use actual format delivered
+                'X-Requested-Format': processedImage.requestedFormat || format, // Show what was requested
+                'X-Fallback': processedImage.fallback ? 'true' : 'false'
             }
         });
 
@@ -145,9 +148,10 @@ async function handleImageInfo(request, env) {
             return new Response('Property reference required', { status: 400 });
         }
 
-        // Get property data
+        // Get property data from main properties list
         const rentmanAPI = new RentmanAPI(env);
-        const propertyData = await rentmanAPI.getPropertyDetails(propref);
+        const allProperties = await rentmanAPI.fetchProperties();
+        const propertyData = allProperties.find(p => p.propref == propref);
         
         if (!propertyData) {
             return new Response('Property not found', { status: 404 });

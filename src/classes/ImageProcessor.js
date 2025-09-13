@@ -151,10 +151,28 @@ class ImageOptimizer {
                 quality: quality / 100
             });
             
+            // Verify the blob is actually WebP by checking the MIME type
+            console.log('WebP conversion - Blob type:', webpBlob.type, 'Size:', webpBlob.size);
+            
             const webpBuffer = await webpBlob.arrayBuffer();
+            const webpArray = new Uint8Array(webpBuffer);
+            
+            // Check WebP magic bytes (RIFF + WEBP)
+            const isWebP = webpArray.length > 12 && 
+                          webpArray[0] === 0x52 && webpArray[1] === 0x49 && // 'RI'
+                          webpArray[2] === 0x46 && webpArray[3] === 0x46 && // 'FF' 
+                          webpArray[8] === 0x57 && webpArray[9] === 0x45 && // 'WE'
+                          webpArray[10] === 0x42 && webpArray[11] === 0x50; // 'BP'
+            
+            console.log('WebP magic bytes check:', isWebP, 'First 16 bytes:', Array.from(webpArray.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' '));
+            
+            if (!isWebP) {
+                console.warn('Canvas convertToBlob returned non-WebP data, falling back to JPEG');
+                throw new Error('WebP conversion failed - invalid format returned');
+            }
             
             return {
-                buffer: new Uint8Array(webpBuffer),
+                buffer: webpArray,
                 contentType: 'image/webp',
                 quality: quality,
                 compressionRatio: webpBuffer.byteLength / imageBuffer.length,
@@ -357,11 +375,18 @@ class ImageOptimizer {
                     break;
             }
             
+            // Determine actual format from content type
+            let actualFormat = format;
+            if (result.contentType === 'image/jpeg') actualFormat = 'jpeg';
+            else if (result.contentType === 'image/webp') actualFormat = 'webp';
+            else if (result.contentType === 'image/avif') actualFormat = 'avif';
+            
             return {
                 buffer: result.buffer,
                 contentType: result.contentType,
                 variant: variant,
-                format: format,
+                format: actualFormat, // Use actual format, not requested format
+                requestedFormat: format, // Keep track of what was requested
                 originalSize: imageBuffer.length,
                 optimizedSize: result.compressedSize || result.resizedSize || result.buffer.length,
                 compressionRatio: result.compressionRatio || (result.buffer.length / imageBuffer.length),
